@@ -1,0 +1,18 @@
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+rtx50_env/
+
+# --- Datasets (DO NOT UPLOAD) ---
+dataset_council/
+dataset_faces/
+dataset_gatekeeper_gold/
+dataset_negatives/
+
+# --- Runtime ---
+temp_vis.jpg
+*.log
+
+# --- OS ---
+.DS_Store

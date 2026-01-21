@@ -1,0 +1,13 @@
+dataset_council/
+dataset_faces/
+dataset_gatekeeper_gold/
+dataset_negatives/
+runs/
+__pycache__/
+*.git/
+*.idea/
+*.vscode/
+*.zip
+*.pdf
+temp_vis.jpg
+clinical_audit_log.csv
