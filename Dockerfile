@@ -1,43 +1,61 @@
-# Base Image with CUDA 12.1 support (compatible with RTX 5060)
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+# ─────────────────────────────────────────────────────────────────────────────
+# HYDRA — Docker Image
+# Base: CUDA 12.8 + cuDNN 9 — required for RTX 5060 (Blackwell / SM 120)
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Set environment variables to prevent interactive prompts during build
+FROM nvidia/cuda:12.8.0-cudnn9-runtime-ubuntu22.04
+
+# Suppress interactive timezone prompts during apt installs
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV TZ=UTC
 
-# Install system dependencies
-# We need python3, pip, git, and libraries for OpenCV (libgl1)
+# ── System Dependencies ───────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 \
+    python3.11 \
+    python3.11-dev \
     python3-pip \
-    python3-dev \
-    libgl1-mesa-glx \
+    python3.11-distutils \
+    build-essential \
+    ffmpeg \
+    libgl1 \
     libglib2.0-0 \
+    libsm6 \
+    libxext6 \
     git \
     wget \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a symlink so 'python' calls python3.10
-RUN ln -s /usr/bin/python3.10 /usr/bin/python
+# Set python3.11 as default python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy requirements file first to leverage Docker cache
+# ── Python Dependencies ───────────────────────────────────────────────────────
 COPY requirements.txt .
 
-# Install Python dependencies
-# We explicitly upgrade pip first
+# Install PyTorch for CUDA 12.8 first (Blackwell-compatible wheels)
 RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir -r requirements.txt
+    pip3 install --no-cache-dir \
+        torch torchvision torchaudio \
+        --index-url https://download.pytorch.org/whl/cu128
 
-# Copy the rest of the application code
+# Install remaining requirements
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# ── Application Code ──────────────────────────────────────────────────────────
 COPY . .
 
-# Expose the port Gradio runs on
-EXPOSE 7860
+# Kaggle credentials (mount at runtime — never bake credentials into image)
+# Run: docker run -v ~/.kaggle:/root/.kaggle hydra-ai
+ENV KAGGLE_CONFIG_DIR=/root/.kaggle
 
-# Define the command to run your app
-# We use the analytics dashboard version as the default entry point
-CMD ["python", "05_app_gold.py"]
+# ── Runtime ───────────────────────────────────────────────────────────────────
+EXPOSE 7860
+ENV GRADIO_SERVER_NAME=0.0.0.0
+
+CMD ["python", "06_clinical_diagnostic_interface.py"]

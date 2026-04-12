@@ -3,18 +3,33 @@ version: '3.8'
 services:
   hydra-ai:
     build: .
+    image: hydra-brain-tumor-ai:latest
     container_name: hydra_production
     restart: unless-stopped
+
     ports:
       - "7860:7860"
+
     volumes:
-      # Mount current directory to /app so Reports/Models are saved to your laptop
-      - .:/app
-      # Optional: Avoid overwriting container system files with host junk
-      - /app/__pycache__
+      # Persist models, datasets, and reports to your local machine
+      - ./dataset_ensemble:/app/dataset_ensemble
+      - ./dataset_volumetric:/app/dataset_volumetric
+      - ./dataset_negatives:/app/dataset_negatives
+      - ./dataset_faces:/app/dataset_faces
+      - ./runs:/app/runs
+      # Mount trained model weights
+      - ./HYDRA_Gatekeeper_v1.pth:/app/HYDRA_Gatekeeper_v1.pth
+      - ./HYDRA_Swin_Council.pth:/app/HYDRA_Swin_Council.pth
+      - ./HYDRA_ConvNext_Council.pth:/app/HYDRA_ConvNext_Council.pth
+      - ./HYDRA_MONAI_Council.pth:/app/HYDRA_MONAI_Council.pth
+      # Kaggle API credentials (read-only)
+      - ~/.kaggle:/root/.kaggle:ro
+
     environment:
       - GRADIO_SERVER_NAME=0.0.0.0
       - CUDA_VISIBLE_DEVICES=0
+      - TF_ENABLE_ONEDNN_OPTS=0
+
     deploy:
       resources:
         reservations:
@@ -22,5 +37,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    stdin_open: true # Equivalent to -i
-    tty: true        # Equivalent to -t
+
+    stdin_open: true
+    tty: true

@@ -1,73 +1,40 @@
 """
-Module  : 05_volumetric_brain_finetune.py
-Project : HYDRA — Clinical Brain Tumor Analysis System
-Purpose : Fine-tune the trained Council ensemble on whole-brain volumetric
-          slice sequences (200–300 axial slices per patient).
+05_volumetric_brain_finetune.py — HYDRA Volumetric Transfer Learning
+=====================================================================
+Fast patient-level transfer learning on whole-brain studies (NIfTI/DICOM/slices).
 
-Why a Separate Fine-Tuning Script?
------------------------------------
-The Council (Script 04) was trained on individual 2D MRI/CT frames without
-spatial context.  Whole-brain scan sequences carry additional diagnostic
-signal:
-  • Tumour continuity across adjacent slices confirms a genuine lesion.
-  • Slice-to-slice intensity variation helps distinguish real pathology from
-    scan artefacts.
-By loading the existing Council weights and fine-tuning on patient-level
-slice sequences, we adapt the models without discarding the 13+ hours of
-prior knowledge.
+Reuses already-trained Council weights from Stage 04 and adapts only the
+head layers for 200-300 slice patient studies — without full retraining.
 
-Expected Dataset Layout (dataset_volumetric/)
-----------------------------------------------
-Place your volumetric data in *either* of these formats:
+Key Design Decisions
+--------------------
+• Patient-level train/val split  → no slice-level data leakage
+• Lazy slice loading             → minimal RAM footprint
+• Frozen backbones               → only heads & final layers are tuned
+• Dataset fingerprinting         → unchanged data is never retrained
 
-Format A — Pre-sliced JPG/PNG files (organised by patient)
-  dataset_volumetric/
-      tumor/
-          patient_001/
-              slice_001.jpg
-              slice_002.jpg
-              ...
-          patient_002/ ...
-      no_tumor/
-          patient_001/ ...
+Skip Logic
+----------
+Skips entirely if:
+  1. All three council weight files exist (> 5 MB each), AND
+  2. HYDRA_Volumetric_Finetune.json sentinel exists, AND
+  3. Dataset fingerprint in the sentinel matches current dataset
 
-Format B — NIfTI volumes (.nii or .nii.gz)
-  dataset_volumetric/
-      tumor/
-          patient_001.nii.gz
-          patient_002.nii.gz
-      no_tumor/
-          patient_001.nii.gz
-
-Format C — DICOM series folders
-  dataset_volumetric/
-      tumor/
-          patient_001/
-              IM-0001-0001.dcm
-              IM-0001-0002.dcm
-              ...
-      no_tumor/
-          patient_001/ ...
-
-Skip Behaviour
---------------
-On first run a sentinel file 'HYDRA_Volumetric_Finetune.json' is written.
-On subsequent runs the script detects this file and exits immediately, even
-if run accidentally.
-
-Output Artefacts
-----------------
-HYDRA_Swin_Council.pth    — Updated SwinV2 weights
-HYDRA_ConvNext_Council.pth — Updated ConvNeXt weights
-HYDRA_MONAI_Council.pth   — Updated MONAI weights
-HYDRA_Volumetric_Finetune.json — Sentinel / training metadata log
+Fixes Applied
+-------------
+• torch.cuda.amp.GradScaler  → torch.amp.GradScaler('cuda')
+• torch.cuda.amp.autocast    → torch.amp.autocast('cuda')
+• All deprecated AMP usage removed
 """
+
+from __future__ import annotations
 
 import json
 import os
-import random
+from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import Any
 
 import cv2
 import nibabel as nib
@@ -77,504 +44,569 @@ import timm
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from monai.networks.nets import SwinUNETR
 from PIL import Image
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms
+from torchvision import transforms  # type: ignore[import-untyped]
 from tqdm import tqdm
+
+from hydra_core import (
+    BRANCH_WEIGHTS,
+    MedicalSwinAdapter,
+    NO_TUMOR_CLASS_INDEX,
+    fingerprint_directory,
+    load_monai_adapter_checkpoint,
+)
 
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE      = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+AMP_ENABLED = DEVICE.type == "cuda"
 
-VOLUMETRIC_DATASET_DIR = "dataset_volumetric"
-SENTINEL_PATH          = "HYDRA_Volumetric_Finetune.json"
+VOLUMETRIC_DATASET_DIR = Path("dataset_volumetric")
+SENTINEL_PATH          = Path("HYDRA_Volumetric_Finetune.json")
 
-WEIGHT_SWIN  = "HYDRA_Swin_Council.pth"
-WEIGHT_CONV  = "HYDRA_ConvNext_Council.pth"
-WEIGHT_MONAI = "HYDRA_MONAI_Council.pth"
+WEIGHT_SWIN  = Path("HYDRA_Swin_Council.pth")
+WEIGHT_CONV  = Path("HYDRA_ConvNext_Council.pth")
+WEIGHT_MONAI = Path("HYDRA_MONAI_Council.pth")
+REQUIRED_COUNCIL_WEIGHTS = [WEIGHT_SWIN, WEIGHT_CONV, WEIGHT_MONAI]
 
-MAX_SLICES_PER_PATIENT = 300   # Hard cap — prevents OOM on large volumes
-MIN_SLICES_PER_PATIENT = 5     # Discard near-empty folders
-NII_TRIM_FRACTION      = 0.15  # Exclude skull/noise at top and bottom 15 %
+MAX_SLICES_PER_PATIENT = 240
+MIN_SLICES_PER_PATIENT = 8
+NIFTI_TRIM_FRACTION    = 0.15   # Trim 15% each end — removes skull/noise slices
 
-INPUT_SIZE     = 256
-BATCH_SIZE     = 8             # Smaller batches accommodate 300-slice contexts
-FINE_TUNE_EPOCHS = 6           # Short fine-tune — preserve prior knowledge
-LEARNING_RATE  = 3e-5          # Very low LR — catastrophic forgetting prevention
+INPUT_SIZE       = 256
+BATCH_SIZE       = 12
+FINE_TUNE_EPOCHS = 4
+LEARNING_RATE    = 1e-4
+WEIGHT_DECAY     = 1e-4
 
-SUPPORTED_IMAGE_EXT = ('.jpg', '.jpeg', '.png')
-
-
-# ─── GUARD: SKIP IF ALREADY FINE-TUNED ───────────────────────────────────────
-
-def volumetric_finetune_already_done() -> bool:
-    """Return True if the sentinel file exists, preventing accidental re-runs."""
-    if os.path.exists(SENTINEL_PATH):
-        with open(SENTINEL_PATH) as fh:
-            meta = json.load(fh)
-        print(f"[SKIP] Volumetric fine-tune already completed on "
-              f"{meta.get('timestamp', 'unknown date')}.")
-        print(f"       Slices used  : {meta.get('total_slices', '?')}")
-        print(f"       Patients     : {meta.get('total_patients', '?')}")
-        print(f"       Final F1     : {meta.get('final_macro_f1', '?')}")
-        print("       Delete 'HYDRA_Volumetric_Finetune.json' to re-run.")
-        return True
-    return False
+SUPPORTED_IMAGE_EXTENSIONS  = (".jpg", ".jpeg", ".png")
+SUPPORTED_VOLUME_EXTENSIONS = (".nii", ".nii.gz")
 
 
-# ─── DICOM / NIfTI LOADERS ───────────────────────────────────────────────────
+# ─── DATA STRUCTURES ──────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class PatientStudy:
+    patient_id:  str
+    label:       int
+    source_kind: str   # "nifti" | "dicom_series" | "image_series"
+    source_path: str
+    slice_count: int
+
+
+@dataclass(frozen=True)
+class SliceRecord:
+    patient_id:  str
+    label:       int
+    source_kind: str
+    source_path: str
+    slice_index: int | None = None
+
+
+# ─── ARRAY UTILITIES ──────────────────────────────────────────────────────────
 
 def _normalise_array(arr: np.ndarray) -> np.ndarray:
-    """Min-max normalise a 2-D numpy array to uint8 [0, 255]."""
-    arr = arr.astype(float)
-    lo, hi = arr.min(), arr.max()
-    normed = (arr - lo) / (hi - lo + 1e-8) * 255.0
-    return normed.astype(np.uint8)
+    arr   = arr.astype(np.float32)
+    lo, hi = float(arr.min()), float(arr.max())
+    scaled = (arr - lo) / (hi - lo + 1e-8)
+    return np.uint8(np.clip(scaled * 255.0, 0, 255))
 
 
-def _load_nifti_slices(path: str, max_slices: int) -> List[Image.Image]:
-    """
-    Extract axial slices from a NIfTI volume.
-    Trims the top and bottom NII_TRIM_FRACTION of slices to remove
-    skull cap and neck artefacts that carry no tumour signal.
-    """
-    vol = nib.load(path).get_fdata()
-    depth = vol.shape[2]
-    start = int(depth * NII_TRIM_FRACTION)
-    end   = int(depth * (1 - NII_TRIM_FRACTION))
-    indices = list(range(start, end))
-
-    if len(indices) > max_slices:
-        step = max(1, len(indices) // max_slices)
-        indices = indices[::step][:max_slices]
-
-    slices = []
-    for z in indices:
-        plane  = _normalise_array(vol[:, :, z])
-        rgb    = cv2.cvtColor(plane, cv2.COLOR_GRAY2RGB)
-        slices.append(Image.fromarray(rgb))
-    return slices
-
-
-def _load_dicom_series(folder: str, max_slices: int) -> List[Image.Image]:
-    """
-    Load and sort a DICOM series from a folder.
-    Sorted by ImagePositionPatient[2] (Z-coordinate), falling back to
-    InstanceNumber if the former is absent.
-    """
-    dcm_files = [
-        os.path.join(folder, f)
-        for f in os.listdir(folder)
-        if f.lower().endswith('.dcm')
-    ]
-    if not dcm_files:
+def _choose_uniform_indices(length: int, cap: int) -> list[int]:
+    if length <= 0:
         return []
+    if length <= cap:
+        return list(range(length))
+    return np.linspace(0, length - 1, num=cap, dtype=int).tolist()  # type: ignore[return-value]
 
-    dcm_objects = []
-    for path in dcm_files:
+
+# ─── DICOM / NIfTI HELPERS ────────────────────────────────────────────────────
+
+def _nifti_slice_indices(path: Path, cap: int) -> list[int]:
+    volume = nib.load(str(path))
+    depth  = int(volume.shape[2]) if len(volume.shape) >= 3 else 0
+    start  = int(depth * NIFTI_TRIM_FRACTION)
+    end    = int(depth * (1 - NIFTI_TRIM_FRACTION))
+    return [start + i for i in _choose_uniform_indices(max(end - start, 0), cap)]
+
+
+def _sorted_dicom_files(folder: Path) -> list[Path]:
+    paths = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".dcm"]
+    sortable: list[tuple[float, Path]] = []
+    for path in paths:
         try:
-            dcm_objects.append(pydicom.dcmread(path))
-        except Exception:
-            continue
-
-    try:
-        dcm_objects.sort(key=lambda d: float(d.ImagePositionPatient[2]))
-    except Exception:
-        try:
-            dcm_objects.sort(key=lambda d: int(d.InstanceNumber))
-        except Exception:
-            pass
-
-    if len(dcm_objects) > max_slices:
-        step = max(1, len(dcm_objects) // max_slices)
-        dcm_objects = dcm_objects[::step][:max_slices]
-
-    slices = []
-    for dcm in dcm_objects:
-        try:
-            plane = _normalise_array(dcm.pixel_array)
-            rgb   = cv2.cvtColor(plane, cv2.COLOR_GRAY2RGB)
-            slices.append(Image.fromarray(rgb))
-        except Exception:
-            continue
-    return slices
-
-
-def _load_image_sequence(folder: str, max_slices: int) -> List[Image.Image]:
-    """
-    Load a sorted sequence of JPEG/PNG files from a patient sub-folder.
-    Files are sorted alphabetically to preserve acquisition order.
-    """
-    files = sorted([
-        os.path.join(folder, f)
-        for f in os.listdir(folder)
-        if f.lower().endswith(SUPPORTED_IMAGE_EXT)
-    ])
-
-    if len(files) > max_slices:
-        step  = max(1, len(files) // max_slices)
-        files = files[::step][:max_slices]
-
-    slices = []
-    for path in files:
-        try:
-            slices.append(Image.open(path).convert("RGB"))
-        except Exception:
-            continue
-    return slices
-
-
-def _discover_patient_slices(
-    class_dir: str,
-    label: int,
-    max_slices: int,
-) -> List[Tuple[Image.Image, int]]:
-    """
-    Discover all patient entries in a class directory and load their slices.
-    Returns a flat list of (PIL_image, label) tuples.
-    """
-    samples = []
-
-    for entry in sorted(os.listdir(class_dir)):
-        entry_path = os.path.join(class_dir, entry)
-
-        # NIfTI volume
-        if entry.lower().endswith(('.nii', '.nii.gz')):
-            slices = _load_nifti_slices(entry_path, max_slices)
-
-        # Sub-folder (DICOM series or pre-sliced images)
-        elif os.path.isdir(entry_path):
-            if any(f.lower().endswith('.dcm') for f in os.listdir(entry_path)):
-                slices = _load_dicom_series(entry_path, max_slices)
+            hdr = pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
+            if hasattr(hdr, "ImagePositionPatient"):
+                key = float(hdr.ImagePositionPatient[2])
+            elif hasattr(hdr, "InstanceNumber"):
+                key = float(hdr.InstanceNumber)
             else:
-                slices = _load_image_sequence(entry_path, max_slices)
-
-        # Single image file at top level
-        elif entry.lower().endswith(SUPPORTED_IMAGE_EXT):
-            try:
-                slices = [Image.open(entry_path).convert("RGB")]
-            except Exception:
-                slices = []
-
-        else:
-            slices = []
-
-        if len(slices) >= MIN_SLICES_PER_PATIENT:
-            samples.extend([(s, label) for s in slices])
-
-    return samples
+                key = float(len(sortable))
+        except Exception:
+            key = float(len(sortable))
+        sortable.append((key, path))
+    sortable.sort(key=lambda x: x[0])
+    return [p for _, p in sortable]
 
 
-# ─── PYTORCH DATASET ─────────────────────────────────────────────────────────
+def _sorted_image_files(folder: Path) -> list[Path]:
+    return sorted(
+        p for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+    )
 
-class VolumetricBrainDataset(Dataset):
+
+# ─── PATIENT DISCOVERY ────────────────────────────────────────────────────────
+
+def _discover_patient_studies(root: Path) -> list[PatientStudy]:
     """
-    Flat slice-level dataset constructed from whole-brain patient volumes.
-
-    Each element is (transformed_tensor, binary_label) where:
-      label 0 → No Tumour
-      label 1 → Tumour Present
-
-    The dataset supports NIfTI, DICOM, and pre-sliced JPEG/PNG inputs
-    without requiring any format-specific pre-processing from the user.
+    Walk dataset_volumetric/tumor/ and dataset_volumetric/no_tumor/
+    and build a list of PatientStudy records (one per patient).
     """
-
-    CLASS_DIRS = {
-        "tumor":    1,
-        "no_tumor": 0,
-        "Tumor":    1,
-        "NoTumor":  0,
+    studies: list[PatientStudy] = []
+    class_map = {
+        "tumor": 1, "Tumor": 1,
+        "no_tumor": 0, "NoTumor": 0, "no-tumor": 0,
     }
 
-    def __init__(
-        self,
-        root: str,
-        transform=None,
-        max_slices: int = MAX_SLICES_PER_PATIENT,
-    ):
-        self.transform = transform
-        self.samples   = []
-        self.patient_count = 0
+    for class_name, label in class_map.items():
+        class_dir = root / class_name
+        if not class_dir.is_dir():
+            continue
 
-        for folder_name, label in self.CLASS_DIRS.items():
-            class_dir = os.path.join(root, folder_name)
-            if not os.path.isdir(class_dir):
+        for entry in sorted(class_dir.iterdir()):
+            patient_id = f"{class_name}/{entry.stem}"
+
+            # NIfTI volume
+            if entry.is_file() and (
+                entry.name.lower().endswith(".nii.gz") or
+                entry.name.lower().endswith(".nii")
+            ):
+                indices = _nifti_slice_indices(entry, MAX_SLICES_PER_PATIENT)
+                if len(indices) >= MIN_SLICES_PER_PATIENT:
+                    studies.append(PatientStudy(patient_id, label, "nifti", str(entry), len(indices)))
                 continue
 
-            n_before = len(self.samples)
-            class_samples = _discover_patient_slices(class_dir, label, max_slices)
-            self.samples.extend(class_samples)
-            n_patients = len([
-                e for e in os.listdir(class_dir)
-                if os.path.isdir(os.path.join(class_dir, e)) or
-                   e.lower().endswith(('.nii', '.nii.gz') + SUPPORTED_IMAGE_EXT)
-            ])
-            self.patient_count += n_patients
-            print(f"  [{folder_name:<10}]  {n_patients:>4} patients  →  "
-                  f"{len(self.samples) - n_before:>6} slices")
+            if not entry.is_dir():
+                continue
+
+            # DICOM series
+            dcm_files = _sorted_dicom_files(entry)
+            if dcm_files:
+                selected = _choose_uniform_indices(len(dcm_files), MAX_SLICES_PER_PATIENT)
+                if len(selected) >= MIN_SLICES_PER_PATIENT:
+                    studies.append(PatientStudy(patient_id, label, "dicom_series", str(entry), len(selected)))
+                continue
+
+            # Pre-sliced image folder
+            img_files = _sorted_image_files(entry)
+            selected = _choose_uniform_indices(len(img_files), MAX_SLICES_PER_PATIENT)
+            if len(selected) >= MIN_SLICES_PER_PATIENT:
+                studies.append(PatientStudy(patient_id, label, "image_series", str(entry), len(selected)))
+
+    return studies
+
+
+# ─── DATASET ──────────────────────────────────────────────────────────────────
+
+class VolumetricSliceDataset(Dataset[tuple[Any, int, str]]):
+    """Lazy-loading slice dataset built from patient-level splits."""
+
+    def __init__(self, studies: list[PatientStudy], transform: Any = None) -> None:
+        self.transform = transform
+        self.samples: list[SliceRecord] = []
+        self._nifti_cache: dict[str, Any] = {}
+
+        for study in studies:
+            self.samples.extend(self._index_study(study))
+
+    def _index_study(self, study: PatientStudy) -> list[SliceRecord]:
+        path = Path(study.source_path)
+        records: list[SliceRecord] = []
+
+        if study.source_kind == "nifti":
+            for idx in _nifti_slice_indices(path, MAX_SLICES_PER_PATIENT):
+                records.append(SliceRecord(study.patient_id, study.label, "nifti", str(path), idx))
+
+        elif study.source_kind == "dicom_series":
+            files = _sorted_dicom_files(path)
+            for idx in _choose_uniform_indices(len(files), MAX_SLICES_PER_PATIENT):
+                records.append(SliceRecord(study.patient_id, study.label, "dicom_file", str(files[idx]), None))
+
+        elif study.source_kind == "image_series":
+            files = _sorted_image_files(path)
+            for idx in _choose_uniform_indices(len(files), MAX_SLICES_PER_PATIENT):
+                records.append(SliceRecord(study.patient_id, study.label, "image_file", str(files[idx]), None))
+
+        return records
+
+    def _load_slice(self, record: SliceRecord) -> Image.Image:
+        if record.source_kind == "nifti":
+            if record.source_path not in self._nifti_cache:
+                self._nifti_cache[record.source_path] = nib.load(record.source_path).get_fdata()
+            volume: np.ndarray = self._nifti_cache[record.source_path]
+            raw = volume[:, :, record.slice_index or 0]
+            arr = _normalise_array(raw)
+            rgb = np.stack([arr, arr, arr], axis=2)
+            return Image.fromarray(rgb)
+
+        elif record.source_kind == "dicom_file":
+            ds = pydicom.dcmread(record.source_path)
+            arr = _normalise_array(ds.pixel_array.astype(np.float32))
+            if arr.ndim == 2:
+                arr = np.stack([arr, arr, arr], axis=2)
+            return Image.fromarray(arr)
+
+        else:  # image_file
+            img = cv2.imread(record.source_path)
+            if img is None:
+                raise IOError(f"Cannot read image: {record.source_path}")
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            return Image.fromarray(rgb)
 
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int):
-        image, label = self.samples[idx]
+    def __getitem__(self, idx: int) -> tuple[Any, int, str]:
+        record = self.samples[idx]
+        try:
+            image = self._load_slice(record)
+        except Exception:
+            image = Image.new("RGB", (INPUT_SIZE, INPUT_SIZE), color=0)
+
         if self.transform:
             image = self.transform(image)
-        return image, label
+        return image, record.label, record.patient_id
 
 
-# ─── MONAI ADAPTER (consistent with Script 04 and 06) ────────────────────────
+# ─── SKIP LOGIC ───────────────────────────────────────────────────────────────
 
-class MedicalSwinAdapter(nn.Module):
-    """
-    Wraps the MONAI Swin-UNETR encoder for 5-class classification.
-    Naming must match Script 04 and 06 exactly.
-    """
+def _dataset_fingerprint() -> str:
+    return fingerprint_directory(
+        VOLUMETRIC_DATASET_DIR,
+        extensions=SUPPORTED_IMAGE_EXTENSIONS + SUPPORTED_VOLUME_EXTENSIONS + (".dcm",),
+    )
 
-    def __init__(self):
-        super().__init__()
-        self.backbone   = SwinUNETR(
-            spatial_dims=2, in_channels=3, out_channels=14, feature_size=24
+
+def volumetric_finetune_already_done(fingerprint: str) -> bool:
+    weights_ok = all(
+        p.exists() and p.stat().st_size > 5 * 1024 * 1024
+        for p in REQUIRED_COUNCIL_WEIGHTS
+    )
+    if not weights_ok or not SENTINEL_PATH.exists():
+        return False
+
+    try:
+        meta = json.loads(SENTINEL_PATH.read_text())
+    except json.JSONDecodeError:
+        return False
+
+    if meta.get("dataset_fingerprint") == fingerprint:
+        print(f"[SKIP] Fine-tune already completed ({meta.get('timestamp', '?')}).")
+        print(f"       Fingerprint : {fingerprint[:16]}...")
+        print(f"       Patients    : {meta.get('patient_count', '?')}")
+        print(f"       Patient F1  : {meta.get('patient_macro_f1', '?')}")
+        return True
+
+    print("[INFO] Dataset changed — re-running fine-tune …")
+    return False
+
+
+# ─── FREEZE STRATEGY ──────────────────────────────────────────────────────────
+
+def _freeze_backbone(model: nn.Module, model_kind: str) -> None:
+    """Freeze all parameters, then unfreeze classification head(s)."""
+    for p in model.parameters():
+        p.requires_grad = False
+
+    if model_kind == "swin":
+        for p in model.head.parameters():          # type: ignore[union-attr]
+            p.requires_grad = True
+        if hasattr(model, "norm"):
+            for p in model.norm.parameters():      # type: ignore[union-attr]
+                p.requires_grad = True
+
+    elif model_kind == "convnext":
+        for p in model.head.parameters():          # type: ignore[union-attr]
+            p.requires_grad = True
+        if hasattr(model, "norm_pre"):
+            for p in model.norm_pre.parameters():  # type: ignore[union-attr]
+                p.requires_grad = True
+
+    elif model_kind == "monai":
+        for p in model.classifier.parameters():    # type: ignore[union-attr]
+            p.requires_grad = True
+        if hasattr(model.backbone.swinViT, "layers"):  # type: ignore[union-attr]
+            for p in model.backbone.swinViT.layers[-1].parameters():  # type: ignore[union-attr]
+                p.requires_grad = True
+
+
+# ─── COUNCIL LOADING ──────────────────────────────────────────────────────────
+
+def _load_pretrained_council() -> tuple[nn.Module, nn.Module, nn.Module]:
+    missing = [str(p) for p in REQUIRED_COUNCIL_WEIGHTS if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing council weights (run 04_diagnostic_ensemble_training.py first): "
+            + ", ".join(missing)
         )
-        self.classifier = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(384, 5),
-        )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features = self.backbone.swinViT(x, normalize=True)[-1]
-        return self.classifier(features)
+    swin: nn.Module  = timm.create_model("swinv2_tiny_window8_256", pretrained=False, num_classes=5).to(DEVICE)
+    conv: nn.Module  = timm.create_model("convnextv2_nano",          pretrained=False, num_classes=5).to(DEVICE)
+    monai: nn.Module = MedicalSwinAdapter().to(DEVICE)
 
+    swin.load_state_dict(torch.load(WEIGHT_SWIN,  map_location=DEVICE, weights_only=True))
+    conv.load_state_dict(torch.load(WEIGHT_CONV,  map_location=DEVICE, weights_only=True))
+    load_monai_adapter_checkpoint(monai, WEIGHT_MONAI, DEVICE, strict=False)
 
-# ─── MODEL LOADING ───────────────────────────────────────────────────────────
+    _freeze_backbone(swin,  "swin")
+    _freeze_backbone(conv,  "convnext")
+    _freeze_backbone(monai, "monai")
 
-def _load_pretrained_council():
-    """Load all three Council branches from existing weight files."""
-    swin  = timm.create_model(
-        "swinv2_tiny_window8_256", pretrained=False, num_classes=5
-    ).to(DEVICE)
-
-    conv  = timm.create_model(
-        "convnextv2_nano", pretrained=False, num_classes=5
-    ).to(DEVICE)
-
-    monai = MedicalSwinAdapter().to(DEVICE)
-
-    for name, model, path in [
-        ("SwinV2",   swin,  WEIGHT_SWIN),
-        ("ConvNeXt", conv,  WEIGHT_CONV),
-        ("MONAI",    monai, WEIGHT_MONAI),
-    ]:
-        if not os.path.exists(path):
-            print(f"  [WARNING] {name} weight '{path}' not found. "
-                  "Run 04_diagnostic_ensemble_training.py first.")
-            continue
-        try:
-            model.load_state_dict(
-                torch.load(path, map_location=DEVICE, weights_only=True),
-                strict=True,
-            )
-            print(f"  [LOADED]  {name:<10} ← '{path}'")
-        except Exception as err:
-            print(f"  [WARNING] {name} load failed: {err}")
-
+    print(f"  [LOADED] SwinV2   ← {WEIGHT_SWIN}")
+    print(f"  [LOADED] ConvNeXt ← {WEIGHT_CONV}")
+    print(f"  [LOADED] MONAI    ← {WEIGHT_MONAI}")
     return swin, conv, monai
 
 
-# ─── FINE-TUNING LOOP ────────────────────────────────────────────────────────
+# ─── BINARY TUMOUR LOGIT ──────────────────────────────────────────────────────
 
-def _finetune(swin, conv, monai, train_loader, val_loader) -> float:
-    """
-    Fine-tune all three Council branches on the volumetric dataset.
-    Uses a very low learning rate and cosine annealing to prevent
-    catastrophic forgetting of prior knowledge.
-    Returns the final macro F1-score on the validation set.
-    """
-    # We reuse the same 5-class cross-entropy but with a binary-compatible
-    # label mapping: index 2 = 'No Tumor', all others = tumour variants.
-    # For the binary fine-tuning data we map: 1→any tumour class, 0→NoTumor.
+def _tumor_logit(logits_5c: torch.Tensor) -> torch.Tensor:
+    """Convert 5-class logits to a binary tumour probability logit."""
+    probs          = torch.softmax(logits_5c.float(), dim=1)
+    tumor_prob     = 1.0 - probs[:, NO_TUMOR_CLASS_INDEX]
+    return torch.logit(torch.clamp(tumor_prob, 1e-6, 1 - 1e-6))
+
+
+# ─── EVALUATION ───────────────────────────────────────────────────────────────
+
+def _evaluate(
+    swin: nn.Module,
+    conv: nn.Module,
+    monai: nn.Module,
+    val_loader: DataLoader[Any],
+) -> dict[str, float]:
+    slice_truth: list[int] = []
+    slice_preds: list[int] = []
+    patient_truth: dict[str, int] = {}
+    patient_scores: dict[str, list[np.ndarray]] = {}
+
+    for m in [swin, conv, monai]:
+        m.eval()
+
+    with torch.no_grad():
+        for images, labels, patient_ids in val_loader:
+            images = images.to(DEVICE)
+            labels_list: list[int] = labels.tolist()
+
+            # Use updated non-deprecated AMP
+            with torch.amp.autocast("cuda", enabled=AMP_ENABLED):
+                p_s = torch.softmax(swin(images), dim=1)
+                p_c = torch.softmax(conv(images), dim=1)
+
+            p_m = torch.softmax(monai(images.float()), dim=1)
+            consensus = (
+                BRANCH_WEIGHTS[0] * p_s.float() +
+                BRANCH_WEIGHTS[1] * p_c.float() +
+                BRANCH_WEIGHTS[2] * p_m.float()
+            )
+
+            preds: list[int] = (consensus[:, NO_TUMOR_CLASS_INDEX] < 0.5).long().cpu().tolist()
+            slice_truth.extend(labels_list)
+            slice_preds.extend(preds)
+
+            for i, pid in enumerate(patient_ids):
+                patient_truth[pid] = labels_list[i]
+                patient_scores.setdefault(pid, []).append(consensus[i].cpu().numpy())
+
+    pat_labels: list[int] = []
+    pat_preds:  list[int] = []
+    for pid, scores in patient_scores.items():
+        avg = np.mean(scores, axis=0)
+        pat_labels.append(patient_truth[pid])
+        pat_preds.append(int(avg[NO_TUMOR_CLASS_INDEX] < 0.5))
+
+    return {
+        "slice_accuracy":   round(float(accuracy_score(slice_truth, slice_preds)), 4),
+        "slice_macro_f1":   round(float(f1_score(slice_truth, slice_preds, average="macro")), 4),
+        "patient_accuracy": round(float(accuracy_score(pat_labels, pat_preds)), 4),
+        "patient_macro_f1": round(float(f1_score(pat_labels, pat_preds, average="macro")), 4),
+    }
+
+
+# ─── FINE-TUNE ────────────────────────────────────────────────────────────────
+
+def _finetune(
+    swin: nn.Module,
+    conv: nn.Module,
+    monai: nn.Module,
+    train_loader: DataLoader[Any],
+    val_loader: DataLoader[Any],
+) -> dict[str, float]:
     criterion = nn.BCEWithLogitsLoss()
-
-    # Reduce to binary logit heads for fine-tuning on the 2-class volumetric data
-    # by extracting 'tumor probability' = 1 - P(NoTumor)
-    optimizer = optim.AdamW(
-        list(swin.parameters()) +
-        list(conv.parameters()) +
-        list(monai.parameters()),
-        lr=LEARNING_RATE,
-        weight_decay=1e-5,
-    )
+    trainable = [
+        p for m in (swin, conv, monai)
+        for p in m.parameters() if p.requires_grad
+    ]
+    optimizer = optim.AdamW(trainable, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=FINE_TUNE_EPOCHS)
-    scaler    = torch.amp.GradScaler("cuda") if DEVICE.type == "cuda" else None
+    scaler    = torch.amp.GradScaler("cuda") if AMP_ENABLED else None
 
     for epoch in range(FINE_TUNE_EPOCHS):
-        swin.train(); conv.train(); monai.train()
+        for m in [swin, conv, monai]:
+            m.train()
+
         epoch_loss = 0.0
-        batch_bar  = tqdm(train_loader, desc=f"[FT Epoch {epoch + 1:02d}/{FINE_TUNE_EPOCHS}]")
+        progress = tqdm(train_loader, desc=f"[FT Epoch {epoch + 1:02d}/{FINE_TUNE_EPOCHS}]")
 
-        for images, labels in batch_bar:
+        for images, labels, _pids in progress:
             images = images.to(DEVICE)
-            # Binary label → float for BCEWithLogits
-            bin_labels = labels.float().to(DEVICE)
-            optimizer.zero_grad()
+            labels_f = labels.float().to(DEVICE)
+            optimizer.zero_grad(set_to_none=True)
 
-            def _tumor_logit(logits_5c):
-                # P(tumor) = 1 - P(NoTumor) where NoTumor is class index 2
-                p = torch.softmax(logits_5c, dim=1)
-                return torch.log(torch.clamp(1.0 - p[:, 2], 1e-7, 1 - 1e-7))
-
-            if scaler:
+            if scaler is not None:
                 with torch.amp.autocast("cuda"):
                     loss = (
-                        criterion(_tumor_logit(swin(images)),   bin_labels) +
-                        criterion(_tumor_logit(conv(images)),   bin_labels) +
-                        criterion(_tumor_logit(monai(images.float())), bin_labels)
+                        criterion(_tumor_logit(swin(images)), labels_f) +
+                        criterion(_tumor_logit(conv(images)), labels_f) +
+                        criterion(_tumor_logit(monai(images.float())), labels_f)
                     )
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 loss = (
-                    criterion(_tumor_logit(swin(images)),   bin_labels) +
-                    criterion(_tumor_logit(conv(images)),   bin_labels) +
-                    criterion(_tumor_logit(monai(images)),  bin_labels)
+                    criterion(_tumor_logit(swin(images)), labels_f) +
+                    criterion(_tumor_logit(conv(images)), labels_f) +
+                    criterion(_tumor_logit(monai(images.float())), labels_f)
                 )
                 loss.backward()
                 optimizer.step()
 
-            epoch_loss += loss.item()
-            batch_bar.set_postfix(loss=f"{loss.item():.4f}")
+            epoch_loss += float(loss.item())
+            progress.set_postfix(loss=f"{loss.item():.4f}")
 
         scheduler.step()
-        print(f"  Epoch {epoch + 1} complete — avg loss: {epoch_loss / len(train_loader):.4f}")
+        print(f"  Epoch {epoch + 1:02d} mean loss: {epoch_loss / max(len(train_loader), 1):.4f}")
 
-    # ── Validation ────────────────────────────────────────────────────────────
-    print("\n[INFO] Evaluating on volumetric validation set …")
-    swin.eval(); conv.eval(); monai.eval()
-    correct, total = 0, 0
-
-    with torch.no_grad():
-        for images, labels in val_loader:
-            images = images.to(DEVICE)
-
-            p_s  = torch.softmax(swin(images),         dim=1)
-            p_c  = torch.softmax(conv(images),         dim=1)
-            p_m  = torch.softmax(monai(images.float()), dim=1)
-            cons = (0.4 * p_s) + (0.3 * p_c) + (0.3 * p_m)
-
-            # Binary accuracy: predicted "tumor" if P(NoTumor) < 0.5
-            predicted_tumor = (cons[:, 2] < 0.5).long().cpu()
-            correct += (predicted_tumor == labels).sum().item()
-            total   += labels.size(0)
-
-    acc = 100.0 * correct / max(total, 1)
-    print(f"  Volumetric Validation Accuracy : {acc:.2f}%  "
-          f"({correct}/{total} slices correct)")
-    return acc
+    metrics = _evaluate(swin, conv, monai, val_loader)
+    print("\n[INFO] Volumetric fine-tune metrics:")
+    print(f"  Slice Accuracy   : {metrics['slice_accuracy'] * 100:.2f}%")
+    print(f"  Slice Macro F1   : {metrics['slice_macro_f1']:.4f}")
+    print(f"  Patient Accuracy : {metrics['patient_accuracy'] * 100:.2f}%")
+    print(f"  Patient Macro F1 : {metrics['patient_macro_f1']:.4f}")
+    return metrics
 
 
-# ─── ORCHESTRATOR ────────────────────────────────────────────────────────────
+# ─── ORCHESTRATOR ─────────────────────────────────────────────────────────────
 
 def run_volumetric_finetune() -> None:
-    """
-    Full volumetric fine-tuning pipeline.
-    Idempotent — exits immediately if the sentinel file exists.
-    """
+    """Full volumetric fine-tune pipeline.  Idempotent."""
     print("=" * 70)
-    print("  HYDRA — Volumetric Brain Slice Fine-Tuning")
+    print("  HYDRA — Volumetric Brain Transfer Learning (Patient-Level)")
     print("=" * 70)
 
-    if volumetric_finetune_already_done():
+    if not VOLUMETRIC_DATASET_DIR.is_dir():
+        print(
+            f"[CRITICAL] '{VOLUMETRIC_DATASET_DIR}' not found.\n"
+            "  Run: python 01b_volumetric_dataset_download.py\n"
+            "  Or manually place studies under:\n"
+            "    dataset_volumetric/tumor/<patient_id>/  or  .nii.gz\n"
+            "    dataset_volumetric/no_tumor/<patient_id>/  or  .nii.gz"
+        )
         return
 
-    if not os.path.isdir(VOLUMETRIC_DATASET_DIR):
-        print(f"[CRITICAL] Volumetric dataset directory "
-              f"'{VOLUMETRIC_DATASET_DIR}' not found.")
-        print("  Please create the directory and populate it with one of these layouts:")
-        print("    dataset_volumetric/tumor/patient_001/*.jpg")
-        print("    dataset_volumetric/tumor/patient_001.nii.gz")
-        print("    dataset_volumetric/no_tumor/patient_001/*.dcm")
+    fingerprint = _dataset_fingerprint()
+    if not fingerprint:
+        print("[CRITICAL] No volumetric files found in dataset_volumetric/.")
         return
 
-    print("[INFO] Discovering and loading volumetric patient data …\n")
+    if volumetric_finetune_already_done(fingerprint):
+        return
 
-    transform = transforms.Compose([
+    studies = _discover_patient_studies(VOLUMETRIC_DATASET_DIR)
+    print(f"[INFO] Discovered {len(studies)} patient studies.")
+    if len(studies) < 4:
+        print("[CRITICAL] Need at least 4 patient studies (2 per class) to proceed.")
+        return
+
+    study_labels = [s.label for s in studies]
+    try:
+        train_studies, val_studies = train_test_split(
+            studies, test_size=0.2, stratify=study_labels, random_state=42
+        )
+    except ValueError as e:
+        print(f"[CRITICAL] Cannot stratify split: {e}")
+        return
+
+    tfm_train = transforms.Compose([
         transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
         transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(10),
-        transforms.ColorJitter(brightness=0.15, contrast=0.15),
+        transforms.RandomRotation(8),
+        transforms.ColorJitter(brightness=0.12, contrast=0.12),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5] * 3, [0.5] * 3),
+    ])
+    tfm_eval = transforms.Compose([
+        transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
         transforms.ToTensor(),
         transforms.Normalize([0.5] * 3, [0.5] * 3),
     ])
 
-    full_dataset = VolumetricBrainDataset(
-        root=VOLUMETRIC_DATASET_DIR,
-        transform=transform,
-        max_slices=MAX_SLICES_PER_PATIENT,
-    )
+    train_ds = VolumetricSliceDataset(train_studies, tfm_train)
+    val_ds   = VolumetricSliceDataset(val_studies,   tfm_eval)
 
-    if len(full_dataset) == 0:
-        print("[CRITICAL] No valid slices found in the volumetric dataset directory.")
+    if len(train_ds) == 0 or len(val_ds) == 0:
+        print("[CRITICAL] Dataset is empty after indexing.")
         return
 
-    labels = [full_dataset.samples[i][1] for i in range(len(full_dataset))]
-    train_idx, val_idx = train_test_split(
-        range(len(full_dataset)),
-        test_size=0.2,
-        stratify=labels,
-        random_state=42,
-    )
+    kw: dict[str, Any] = {"num_workers": 2, "pin_memory": AMP_ENABLED}
+    train_loader: DataLoader[Any] = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  **kw)
+    val_loader:   DataLoader[Any] = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, **kw)
 
-    from torch.utils.data import Subset
-    train_loader = DataLoader(
-        Subset(full_dataset, train_idx),
-        batch_size=BATCH_SIZE, shuffle=True,
-        num_workers=2, pin_memory=True,
-    )
-    val_loader = DataLoader(
-        Subset(full_dataset, val_idx),
-        batch_size=BATCH_SIZE, shuffle=False,
-        num_workers=2, pin_memory=True,
-    )
+    print(f"[INFO] Train patients: {len(train_studies)} | Val patients: {len(val_studies)}")
+    print(f"[INFO] Train slices  : {len(train_ds)}  | Val slices  : {len(val_ds)}")
+    print(f"[INFO] Device        : {DEVICE}")
+    print(f"[INFO] Fingerprint   : {fingerprint[:16]}...")
 
-    print(f"\n[INFO] Dataset summary:")
-    print(f"  Total slices (train) : {len(train_idx)}")
-    print(f"  Total slices (val)   : {len(val_idx)}")
-    print(f"  Total patients       : {full_dataset.patient_count}")
-    print(f"  Device               : {DEVICE}\n")
+    try:
+        print("\n[INFO] Loading pretrained Council weights …")
+        swin, conv, monai = _load_pretrained_council()
+    except FileNotFoundError as e:
+        print(f"[CRITICAL] {e}")
+        return
 
-    print("[INFO] Loading pre-trained Council weights …")
-    swin, conv, monai = _load_pretrained_council()
-
-    print(f"\n[INFO] Starting fine-tuning — {FINE_TUNE_EPOCHS} epochs …\n")
-    accuracy = _finetune(swin, conv, monai, train_loader, val_loader)
+    print(f"\n[INFO] Fine-tuning for {FINE_TUNE_EPOCHS} epochs …\n")
+    metrics = _finetune(swin, conv, monai, train_loader, val_loader)
 
     torch.save(swin.state_dict(),  WEIGHT_SWIN)
     torch.save(conv.state_dict(),  WEIGHT_CONV)
     torch.save(monai.state_dict(), WEIGHT_MONAI)
 
-    # Write sentinel file
-    metadata = {
-        "timestamp":      datetime.now().isoformat(),
-        "total_slices":   len(full_dataset),
-        "total_patients": full_dataset.patient_count,
-        "epochs":         FINE_TUNE_EPOCHS,
-        "final_accuracy": round(accuracy, 4),
-        "final_macro_f1": "see 07_ensemble_performance_evaluation.py",
-        "device":         str(DEVICE),
+    meta: dict[str, Any] = {
+        "timestamp":           datetime.now().isoformat(),
+        "dataset_fingerprint": fingerprint,
+        "dataset_path":        str(VOLUMETRIC_DATASET_DIR),
+        "patient_count":       len(studies),
+        "slice_count":         len(train_ds) + len(val_ds),
+        "epochs":              FINE_TUNE_EPOCHS,
+        "batch_size":          BATCH_SIZE,
+        "learning_rate":       LEARNING_RATE,
+        "max_slices_per_patient": MAX_SLICES_PER_PATIENT,
+        "device":              str(DEVICE),
+        **metrics,
     }
-    with open(SENTINEL_PATH, "w") as fh:
-        json.dump(metadata, fh, indent=2)
+    SENTINEL_PATH.write_text(json.dumps(meta, indent=2))
 
-    print(f"\n[SUCCESS] Fine-tuned weights saved:")
+    print("\n[SUCCESS] Updated council checkpoints saved:")
     print(f"  → {WEIGHT_SWIN}")
     print(f"  → {WEIGHT_CONV}")
     print(f"  → {WEIGHT_MONAI}")
-    print(f"  → Sentinel file written to '{SENTINEL_PATH}'")
+    print(f"  → {SENTINEL_PATH}")
     print("=" * 70)
 
 

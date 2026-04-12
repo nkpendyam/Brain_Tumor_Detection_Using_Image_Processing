@@ -1,13 +1,48 @@
-dataset_council/
-dataset_faces/
-dataset_gatekeeper_gold/
+# ── Datasets (mounted at runtime via volumes) ─────────────────────────────────
+dataset_ensemble/
+dataset_volumetric/
 dataset_negatives/
+dataset_faces/
+dataset_yolo_detection/
+staging_gatekeeper/
+tmp_*/
+
+# ── Model weights (mounted at runtime via volumes) ────────────────────────────
+*.pth
+*.pt
+*.torchscript
+
+# ── Training artifacts ────────────────────────────────────────────────────────
 runs/
-__pycache__/
-*.git/
-*.idea/
-*.vscode/
-*.zip
+mlruns/
 *.pdf
-temp_vis.jpg
-clinical_audit_log.csv
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.eggs/
+*.egg-info/
+
+# ── Dev tooling ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.ipynb
+.ipynb_checkpoints/
+
+# ── Credentials (never bake into image) ───────────────────────────────────────
+kaggle.json
+.kaggle/
+
+# ── Docs / non-runtime files ──────────────────────────────────────────────────
+README.md
+COMMANDS.md
+GITHUB_CLEANUP.md
+*.txt
+Problems.txt
+tree.txt
+LICENSE

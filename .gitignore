@@ -1,20 +1,78 @@
-# --- Python ---
+# ─────────────────────────────────────────────────────────────────────────────
+# HYDRA — .gitignore
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
-*.pyc
-.venv/
-rtx50_env/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
 
-# --- Datasets (DO NOT UPLOAD) ---
-dataset_council/
-dataset_faces/
-dataset_gatekeeper_gold/
+# ── Virtual environments ──────────────────────────────────────────────────────
+.env
+.venv
+venv/
+env/
+
+# ── Datasets (too large for git) ──────────────────────────────────────────────
+dataset_ensemble/
+dataset_volumetric/
 dataset_negatives/
+dataset_faces/
+dataset_yolo_detection/
+staging_gatekeeper/
+tmp_*/
+*.zip
+*.tar
+*.tar.gz
 
-# --- Runtime ---
-temp_vis.jpg
-*.log
+# ── Trained model weights (use Git LFS or cloud storage) ─────────────────────
+HYDRA_Gatekeeper_v1.pth
+HYDRA_Swin_Council.pth
+HYDRA_ConvNext_Council.pth
+HYDRA_MONAI_Council.pth
+HYDRA_Volumetric_Finetune.json
+*.pth
+*.pt
+*.torchscript
+yolo11n.pt
+yolo26n.pt
 
-# --- OS ---
+# ── YOLO training runs ────────────────────────────────────────────────────────
+runs/
+mlruns/
+
+# ── Generated reports ─────────────────────────────────────────────────────────
+HYDRA_Report_*.pdf
+*_heatmap_tmp.jpg
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
-runs/
-runs/
+Thumbs.db
+desktop.ini
+
+# ── NIfTI / DICOM (keep out of git) ──────────────────────────────────────────
+*.nii
+*.nii.gz
+*.dcm
+
+# ── Kaggle credentials (NEVER commit these!) ──────────────────────────────────
+kaggle.json
+
+# ── MLflow / ClearML ──────────────────────────────────────────────────────────
+.clearml/
