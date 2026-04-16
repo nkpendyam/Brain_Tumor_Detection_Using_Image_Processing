@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Brain Tumor Detection — AI Clinical Analysis System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet"/>
+<style>
+/* ── DESIGN SYSTEM ── */
+:root{
+  --bg:#040810;--bg2:#06101e;--s1:#080f1c;--s2:#0c1525;--s3:#101c30;
+  --border:rgba(255,255,255,.06);--border2:rgba(255,255,255,.1);
+  --blue:#4f9cf9;--blue2:#2563eb;--blue3:#1d4ed8;
+  --cyan:#22d3ee;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;
+  --purple:#a78bfa;--rose:#fb7185;
+  --text:#d8e2f0;--text2:#9ab0d0;--muted:#506080;
+  --r:14px;--font:'Inter',system-ui,sans-serif;
+  --serif:'Playfair Display',Georgia,serif;--mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px}
+body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.65;overflow-x:hidden}
+::selection{background:rgba(79,156,249,.3);color:#fff}
+
+/* ── FIXED NAV ── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:200;
+  height:58px;display:flex;align-items:center;gap:2rem;
+  padding:0 3.5rem;
+  background:rgba(4,8,16,.85);backdrop-filter:blur(24px);
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{
+  font-family:var(--mono);font-weight:600;font-size:.95rem;
+  color:#edf4ff;letter-spacing:-.01em;white-space:nowrap;
+}
+.nav-logo span{color:var(--blue)}
+nav a{
+  color:var(--muted);text-decoration:none;font-size:.82rem;
+  font-weight:500;transition:color .2s;white-space:nowrap;
+}
+nav a:hover{color:var(--text)}
+.nav-end{margin-left:auto;display:flex;align-items:center;gap:.6rem}
+.nav-badge{
+  background:rgba(79,156,249,.1);border:1px solid rgba(79,156,249,.22);
+  color:var(--blue);padding:3px 10px;border-radius:999px;
+  font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+}
+.nav-launch{
+  background:linear-gradient(135deg,var(--blue2),var(--blue3));
+  color:#fff;padding:6px 16px;border-radius:8px;font-size:.78rem;
+  font-weight:700;text-decoration:none;transition:filter .2s;
+}
+.nav-launch:hover{filter:brightness(1.12)}
+
+/* ── HERO ── */
+#hero{
+  min-height:100vh;display:flex;align-items:center;
+  padding:110px 10vw 80px;position:relative;overflow:hidden;
+}
+.hero-bg{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(ellipse 70% 60% at 8% 55%,rgba(79,156,249,.09) 0%,transparent 55%),
+    radial-gradient(ellipse 45% 55% at 88% 18%,rgba(167,139,250,.07) 0%,transparent 50%),
+    radial-gradient(ellipse 55% 40% at 55% 95%,rgba(34,211,238,.04) 0%,transparent 50%);
+}
+.hero-grid{
+  position:absolute;inset:0;
+  background:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),
+             linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);
+  background-size:52px 52px;
+  mask-image:radial-gradient(ellipse 75% 75% at 50% 50%,black 30%,transparent 100%);
+}
+.hero-inner{position:relative;max-width:700px}
+.hero-eyebrow{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(79,156,249,.1);border:1px solid rgba(79,156,249,.2);
+  color:var(--blue);padding:5px 14px;border-radius:999px;
+  font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  margin-bottom:24px;
+}
+.blink{width:7px;height:7px;border-radius:50%;background:var(--blue);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1;box-shadow:0 0 8px var(--blue)}50%{opacity:.3;box-shadow:none}}
+.hero-h1{
+  font-family:var(--serif);
+  font-size:clamp(2.4rem,5.5vw,4.2rem);
+  line-height:1.08;color:#ecf3ff;
+  letter-spacing:-.025em;margin-bottom:20px;
+}
+.hero-h1 em{font-style:normal;color:var(--blue)}
+.hero-sub{
+  font-size:1.05rem;color:var(--text2);max-width:580px;
+  line-height:1.78;margin-bottom:36px;
+}
+.hero-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:44px}
+.pill{
+  background:rgba(255,255,255,.04);border:1px solid var(--border2);
+  padding:5px 13px;border-radius:999px;font-size:.79rem;color:#6d8fb5;
+}
+.hero-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;max-width:580px}
+.kpi{
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:12px;padding:16px;text-align:center;
+}
+.kpi-v{font-family:var(--mono);font-size:1.85rem;font-weight:700;color:var(--blue)}
+.kpi-l{font-size:.67rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+
+/* ── SECTION SHELLS ── */
+section{padding:96px 10vw}
+section:nth-child(even){background:var(--s1)}
+.sec-eyebrow{
+  font-size:.68rem;font-weight:700;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--blue);margin-bottom:10px;
+}
+.sec-h{
+  font-family:var(--serif);
+  font-size:clamp(1.9rem,3vw,2.7rem);
+  color:#ecf3ff;letter-spacing:-.025em;margin-bottom:16px;
+}
+.sec-lead{
+  color:var(--text2);max-width:620px;font-size:.97rem;
+  line-height:1.78;margin-bottom:52px;
+}
+
+/* ── REVEAL ANIMATION ── */
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .6s ease,transform .6s ease}
+.reveal.on{opacity:1;transform:none}
+
+/* ═══════════════════════════════════════════════════════════
+   ANIMATED PIPELINE FLOWCHART
+   ══════════════════════════════════════════════════════════ */
+.flow-wrap{max-width:860px;margin:0 auto}
+
+.flow-row{display:flex;align-items:flex-start;gap:20px;margin-bottom:0}
+.flow-spine{
+  display:flex;flex-direction:column;align-items:center;flex-shrink:0;
+}
+.flow-node{
+  width:52px;height:52px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:.82rem;font-weight:700;
+  flex-shrink:0;position:relative;z-index:2;
+  transition:transform .3s,box-shadow .3s;
+}
+.flow-node:hover{transform:scale(1.08)}
+.fn-blue {background:linear-gradient(135deg,rgba(79,156,249,.25),rgba(37,99,235,.15));border:1.5px solid rgba(79,156,249,.4);color:var(--blue);box-shadow:0 0 20px rgba(79,156,249,.15)}
+.fn-green{background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(21,128,61,.12));border:1.5px solid rgba(34,197,94,.4);color:var(--green);box-shadow:0 0 18px rgba(34,197,94,.12)}
+.fn-amber{background:linear-gradient(135deg,rgba(245,158,11,.2),rgba(180,83,9,.1));border:1.5px solid rgba(245,158,11,.35);color:var(--amber);box-shadow:0 0 18px rgba(245,158,11,.1)}
+.fn-purple{background:linear-gradient(135deg,rgba(167,139,250,.2),rgba(109,40,217,.1));border:1.5px solid rgba(167,139,250,.35);color:var(--purple);box-shadow:0 0 18px rgba(167,139,250,.1)}
+.fn-cyan{background:linear-gradient(135deg,rgba(34,211,238,.2),rgba(8,145,178,.1));border:1.5px solid rgba(34,211,238,.35);color:var(--cyan);box-shadow:0 0 18px rgba(34,211,238,.1)}
+.fn-rose{background:linear-gradient(135deg,rgba(251,113,133,.2),rgba(190,18,60,.1));border:1.5px solid rgba(251,113,133,.35);color:var(--rose);box-shadow:0 0 18px rgba(251,113,133,.1)}
+
+.flow-connector{
+  width:2px;flex:1;min-height:20px;
+  background:linear-gradient(to bottom,rgba(79,156,249,.35),rgba(79,156,249,.08));
+  position:relative;
+}
+.flow-connector::after{
+  content:'';position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);
+  border-left:5px solid transparent;border-right:5px solid transparent;
+  border-top:7px solid rgba(79,156,249,.4);
+}
+
+.flow-card{
+  flex:1;background:var(--s2);border:1px solid var(--border);
+  border-radius:var(--r);padding:18px 22px;margin-bottom:20px;
+  transition:border-color .25s,box-shadow .25s,transform .25s;
+}
+.flow-card:hover{
+  border-color:rgba(79,156,249,.25);
+  box-shadow:0 6px 36px rgba(79,156,249,.07);
+  transform:translateY(-2px);
+}
+.fc-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.fc-icon{font-size:1.25rem}
+.fc-name{font-weight:700;font-size:.97rem;color:#edf4ff}
+.fc-file{
+  margin-left:auto;font-family:var(--mono);font-size:.68rem;
+  background:rgba(79,156,249,.1);color:var(--blue);
+  padding:2px 8px;border-radius:5px;
+}
+.fc-desc{color:var(--text2);font-size:.86rem;line-height:1.62;margin-bottom:11px}
+.fc-tags{display:flex;gap:7px;flex-wrap:wrap}
+.tag{font-size:.68rem;font-weight:600;padding:2px 8px;border-radius:5px;border:1px solid}
+.t-done{background:rgba(34,197,94,.1);color:var(--green);border-color:rgba(34,197,94,.25)}
+.t-run {background:rgba(245,158,11,.1);color:var(--amber);border-color:rgba(245,158,11,.25)}
+.t-fix {background:rgba(79,156,249,.1);color:var(--blue);border-color:rgba(79,156,249,.25)}
+.t-info{background:rgba(255,255,255,.04);color:var(--muted);border-color:var(--border)}
+
+/* Council sub-branches */
+.council-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0 0}
+.branch-card{
+  background:var(--s3);border:1px solid var(--border);border-radius:10px;padding:14px;
+  text-align:center;transition:border-color .25s,transform .25s;
+}
+.branch-card:hover{border-color:rgba(79,156,249,.3);transform:translateY(-3px)}
+.bc-icon{font-size:1.4rem;margin-bottom:6px}
+.bc-name{font-weight:700;font-size:.88rem;color:#edf4ff;margin-bottom:3px}
+.bc-sub{font-size:.76rem;color:var(--muted);margin-bottom:8px}
+.bc-weight{
+  display:inline-block;
+  background:linear-gradient(135deg,var(--blue2),var(--blue3));
+  color:#fff;font-size:.68rem;font-weight:700;
+  padding:2px 8px;border-radius:999px;
+}
+.bc-why{font-size:.73rem;color:var(--text2);margin-top:8px;line-height:1.5}
+
+/* ═══════════════════════════════════════════════════════════
+   ARCHITECTURE SVG DIAGRAM
+   ══════════════════════════════════════════════════════════ */
+.arch-wrap{max-width:860px;margin:0 auto;overflow:auto}
+.arch-svg{width:100%;min-width:600px;height:auto}
+
+/* ═══════════════════════════════════════════════════════════
+   TECHNOLOGY CARDS
+   ══════════════════════════════════════════════════════════ */
+.tech-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:16px}
+.tech-card{
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:var(--r);padding:22px;
+  transition:transform .25s,border-color .25s;
+}
+.tech-card:hover{transform:translateY(-4px);border-color:rgba(79,156,249,.22)}
+.tc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.tc-icon{font-size:1.55rem}
+.tc-badge{
+  font-size:.68rem;font-weight:700;padding:3px 9px;
+  border-radius:999px;border:1px solid;
+}
+.tb-blue  {background:rgba(79,156,249,.1);color:var(--blue);border-color:rgba(79,156,249,.25)}
+.tb-green {background:rgba(34,197,94,.1);color:var(--green);border-color:rgba(34,197,94,.25)}
+.tb-purple{background:rgba(167,139,250,.1);color:var(--purple);border-color:rgba(167,139,250,.25)}
+.tb-amber {background:rgba(245,158,11,.1);color:var(--amber);border-color:rgba(245,158,11,.25)}
+.tb-cyan  {background:rgba(34,211,238,.1);color:var(--cyan);border-color:rgba(34,211,238,.25)}
+.tb-rose  {background:rgba(251,113,133,.1);color:var(--rose);border-color:rgba(251,113,133,.25)}
+.tc-name{font-weight:700;font-size:.96rem;color:#edf4ff;margin-bottom:4px}
+.tc-version{font-size:.75rem;color:var(--muted);font-family:var(--mono);margin-bottom:10px}
+.tc-desc{font-size:.83rem;color:var(--text2);line-height:1.6;margin-bottom:12px}
+.tc-why{
+  font-size:.78rem;font-weight:600;color:var(--blue);
+  background:rgba(79,156,249,.08);border:1px solid rgba(79,156,249,.15);
+  border-radius:7px;padding:8px 10px;line-height:1.5;
+}
+.tc-why::before{content:'Why: ';font-weight:700}
+
+/* ═══════════════════════════════════════════════════════════
+   RESULTS TABLE
+   ══════════════════════════════════════════════════════════ */
+.results-table{
+  width:100%;border-collapse:collapse;margin-top:32px;
+  border-radius:var(--r);overflow:hidden;
+  border:1px solid var(--border);
+}
+.results-table th{
+  background:var(--s3);color:var(--muted);
+  padding:12px 18px;text-align:left;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;
+}
+.results-table td{
+  padding:11px 18px;border-top:1px solid var(--border);font-size:.9rem;
+}
+.results-table tr:hover td{background:rgba(79,156,249,.03)}
+.mono-v{font-family:var(--mono);font-weight:600;color:var(--blue)}
+.mono-g{font-family:var(--mono);font-weight:600;color:var(--green)}
+.chip-best{
+  background:rgba(34,197,94,.12);color:var(--green);
+  padding:2px 8px;border-radius:5px;font-size:.7rem;font-weight:700;
+  border:1px solid rgba(34,197,94,.2);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DATASET CARDS
+   ══════════════════════════════════════════════════════════ */
+.ds-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:13px;margin-top:28px}
+.ds-card{background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:16px}
+.ds-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.ds-name{font-weight:700;font-size:.9rem;color:#edf4ff}
+.ds-type{font-size:.67rem;font-weight:700;padding:2px 7px;border-radius:5px}
+.dt-base{background:rgba(79,156,249,.1);color:var(--blue)}
+.dt-vol {background:rgba(167,139,250,.1);color:var(--purple)}
+.dt-neg {background:rgba(245,158,11,.1);color:var(--amber)}
+.ds-desc{font-size:.8rem;color:var(--muted);line-height:1.55;margin-bottom:6px}
+.ds-meta{font-size:.73rem;color:#475569}
+.ds-meta b{color:var(--text)}
+
+/* ═══════════════════════════════════════════════════════════
+   CODE BLOCKS
+   ══════════════════════════════════════════════════════════ */
+.code-label{
+  font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:8px;
+}
+.cmd{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:10px;padding:18px 22px;
+  font-family:var(--mono);font-size:.83rem;line-height:1.9;
+  overflow-x:auto;margin-bottom:14px;white-space:pre;
+}
+.c-cm{color:#5b7ca1}.c-hi{color:var(--green)}.c-warn{color:var(--amber)}.c-dim{color:var(--muted)}
+
+/* ═══════════════════════════════════════════════════════════
+   SLICE DISPLAY DEMO
+   ══════════════════════════════════════════════════════════ */
+.slice-demo{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:24px;
+}
+.slice-card{
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:12px;padding:18px;text-align:center;
+}
+.slice-icon{font-size:2.2rem;margin-bottom:10px}
+.slice-title{font-weight:700;font-size:.92rem;color:#edf4ff;margin-bottom:6px}
+.slice-desc{font-size:.8rem;color:var(--text2);line-height:1.55}
+.slice-badge{
+  display:inline-block;margin-top:10px;
+  background:rgba(79,156,249,.1);border:1px solid rgba(79,156,249,.2);
+  color:var(--blue);font-size:.72rem;font-weight:600;
+  padding:3px 10px;border-radius:999px;font-family:var(--mono);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FOOTER
+   ══════════════════════════════════════════════════════════ */
+footer{
+  background:var(--s1);border-top:1px solid var(--border);
+  padding:32px 10vw;
+  display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:16px;
+}
+.ft-brand{font-family:var(--mono);font-weight:600;color:#edf4ff;font-size:.9rem}
+footer p{font-size:.78rem;color:var(--muted)}
+
+@media(max-width:720px){
+  nav a:not(.nav-launch){display:none}
+  .hero-kpis{grid-template-columns:repeat(2,1fr)}
+  .council-row{grid-template-columns:1fr}
+  .slice-demo{grid-template-columns:1fr}
+  section{padding:72px 6vw}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">Brain<span>Tumor</span>Detection</div>
+  <a href="#pipeline">Pipeline</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#technologies">Technologies</a>
+  <a href="#results">Results</a>
+  <a href="#datasets">Datasets</a>
+  <a href="#commands">Commands</a>
+  <div class="nav-end">
+    <span class="nav-badge">RTX 5060 · CUDA 12.8</span>
+    <a href="http://localhost:7860" class="nav-launch" target="_blank">Launch Dashboard →</a>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════ HERO ══ -->
+<section id="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+  <div class="hero-inner">
+    <div class="hero-eyebrow"><span class="blink"></span>Clinical AI Research Project</div>
+    <h1 class="hero-h1">Brain <em>Tumor</em><br>Detection System</h1>
+    <p class="hero-sub">
+      A multi-stage AI pipeline combining safety screening, spatial localisation, and a
+      three-branch weighted-voting diagnostic ensemble for comprehensive brain tumour
+      analysis from MRI, CT, DICOM series, and NIfTI volumetric studies.
+    </p>
+    <div class="hero-pills">
+      <span class="pill">EfficientNet-B0 Gatekeeper</span>
+      <span class="pill">YOLOv11n Spatial Localizer</span>
+      <span class="pill">SwinV2 + ConvNeXt + MONAI Council</span>
+      <span class="pill">Grad-CAM Saliency Maps</span>
+      <span class="pill">Volumetric NIfTI / DICOM Support</span>
+    </div>
+    <div class="hero-kpis">
+      <div class="kpi"><div class="kpi-v">98.25%</div><div class="kpi-l">Accuracy</div></div>
+      <div class="kpi"><div class="kpi-v">0.9783</div><div class="kpi-l">Macro F1</div></div>
+      <div class="kpi"><div class="kpi-v">5</div><div class="kpi-l">Classes</div></div>
+      <div class="kpi"><div class="kpi-v">300</div><div class="kpi-l">Max Slices</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════ PIPELINE ══ -->
+<section id="pipeline">
+<div class="reveal">
+  <div class="sec-eyebrow">Step-by-Step Execution</div>
+  <h2 class="sec-h">Complete Pipeline Flowchart</h2>
+  <p class="sec-lead">
+    Eight scripts, each with built-in skip logic. Already-completed stages auto-skip on re-run.
+    Run in order: 01 → 01b → 02 → 03 → 04 → 05 → 07 → 06.
+  </p>
+</div>
+
+<div class="flow-wrap reveal">
+
+  <!-- Step 01 -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-blue">01</div>
+      <div class="flow-connector"></div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">📥</span>
+        <span class="fc-name">Base Neuroimaging Data Acquisition</span>
+        <span class="fc-file">01_neuroimaging_data_acquisition.py</span>
+      </div>
+      <div class="fc-desc">
+        Downloads 2-D MRI and CT classification datasets from Kaggle. Routes images into semantic class folders
+        inside <code>dataset_ensemble/</code>. Also downloads chest X-rays and facial photos as negative
+        out-of-distribution samples for the Gatekeeper.
+        <br><br>
+        <strong>Classes collected:</strong> Glioma (1,621) · Meningioma (1,645) · NoTumor (3,500) · Pituitary (1,757) · Tumor_Generic (1,500)
+      </div>
+      <div class="fc-tags">
+        <span class="tag t-done">✓ Already done (10,023 images)</span>
+        <span class="tag t-info">Kaggle API</span>
+        <span class="tag t-info">~3.7 GB download</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 01b -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-blue">01b</div>
+      <div class="flow-connector"></div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">🧠</span>
+        <span class="fc-name">Volumetric Patient Study Download</span>
+        <span class="fc-file">01b_volumetric_dataset_download.py</span>
+      </div>
+      <div class="fc-desc">
+        Downloads patient-level brain MRI studies for volumetric fine-tuning. Uses <strong>Kaggle only</strong>
+        — no direct HTTP downloads that previously caused corruption. Auto-upgrades the Kaggle CLI at
+        startup to fix the <code>{current_version}</code> download bug. Deletes stale partial downloads
+        before each attempt using <code>--force</code> flag.
+        <br><br>
+        Extracts NIfTI volumes into per-patient JPEG slice folders (≤ 120 slices each) for training.
+      </div>
+      <div class="fc-tags">
+        <span class="tag t-run">▶ Run if dataset_volumetric/ empty</span>
+        <span class="tag t-fix">🔧 Corruption bug fixed</span>
+        <span class="tag t-info">LGG 714 MB · Healthy ~200 MB</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 02 -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-green">02</div>
+      <div class="flow-connector"></div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">🚨</span>
+        <span class="fc-name">Safety Gatekeeper Training</span>
+        <span class="fc-file">02_gatekeeper_model_training.py</span>
+      </div>
+      <div class="fc-desc">
+        Fine-tunes <strong>EfficientNet-B0</strong> as a binary <em>Brain / NotBrain</em> classifier.
+        Trained on brain MRI/CT positives and chest X-ray + facial photo negatives. Runs 5 epochs with
+        AdamW optimiser and AMP (Automatic Mixed Precision) on CUDA.
+        <br><br>
+        At inference: any slice scoring &gt;70% NotBrain probability is silently rejected before reaching
+        the Council — protecting diagnostic integrity from corrupted or irrelevant uploads.
+      </div>
+      <div class="fc-tags">
+        <span class="tag t-done">✓ Done → Gatekeeper_v1.pth</span>
+        <span class="tag t-info">EfficientNet-B0 · 5 epochs · 224×224</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 03 -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-amber">03</div>
+      <div class="flow-connector"></div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">🎯</span>
+        <span class="fc-name">Tumour Localizer Training (Hunter)</span>
+        <span class="fc-file">03_tumor_localization_model_training.py</span>
+      </div>
+      <div class="fc-desc">
+        Trains a <strong>YOLOv11n</strong> (Nano) single-class object detector to predict bounding boxes
+        around tumour regions — telling clinicians <em>where</em> the tumour is, not just <em>whether</em>
+        it exists. Uses Mosaic augmentation (50%) to force local feature attention. Exported to TorchScript
+        for production deployment.
+        <br><br>
+        Mixup is intentionally disabled: blending anatomical regions creates clinically invalid training samples.
+      </div>
+      <div class="fc-tags">
+        <span class="tag t-done">✓ Done → best.pt (mAP50 = 0.516)</span>
+        <span class="tag t-info">YOLOv11n · 35 epochs · 640×640</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 04 - expanded with branches -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-purple">04</div>
+      <div class="flow-connector"></div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">🏛️</span>
+        <span class="fc-name">Diagnostic Council Training</span>
+        <span class="fc-file">04_diagnostic_ensemble_training.py</span>
+      </div>
+      <div class="fc-desc">
+        Trains three independent 5-class classifiers in sequence. The final prediction is a
+        <strong>weighted probability vote</strong>:
+        <code>P = 0.4·P_swin + 0.3·P_conv + 0.3·P_monai</code>
+        <br><br>
+        Class-weighted cross-entropy handles the dataset imbalance. Each branch saves its best
+        checkpoint by validation macro F1. All components are inlined — no external shared module needed.
+      </div>
+      <div class="council-row">
+        <div class="branch-card">
+          <div class="bc-icon">🌐</div>
+          <div class="bc-name">SwinV2-Tiny</div>
+          <div class="bc-sub">Swin_5C.pth</div>
+          <div class="bc-weight">40% vote</div>
+          <div class="bc-why">Window-shifted attention captures global brain texture and long-range spatial relationships across the full MRI slice.</div>
+        </div>
+        <div class="branch-card">
+          <div class="bc-icon">⚡</div>
+          <div class="bc-name">ConvNeXtV2-Nano</div>
+          <div class="bc-sub">ConvNext_5C.pth</div>
+          <div class="bc-weight">30% vote</div>
+          <div class="bc-why">Modern convolutional design provides rotation invariance and spatial stability — important for varied MRI acquisition orientations.</div>
+        </div>
+        <div class="branch-card">
+          <div class="bc-icon">🏥</div>
+          <div class="bc-name">MONAI Swin-UNETR</div>
+          <div class="bc-sub">MONAI_5C.pth</div>
+          <div class="bc-weight">30% vote</div>
+          <div class="bc-why">Medical-domain pretrained encoder with anatomical intuition. Uniquely supports Grad-CAM saliency map generation for explainability.</div>
+        </div>
+      </div>
+      <div class="fc-tags" style="margin-top:14px">
+        <span class="tag t-done">✓ Done → 98.25% accuracy, F1=0.9783</span>
+        <span class="tag t-info">12 epochs · 256×256 · AdamW + Cosine LR</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 05 -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-cyan">05</div>
+      <div class="flow-connector"></div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">🔬</span>
+        <span class="fc-name">Volumetric Fine-Tuning</span>
+        <span class="fc-file">05_volumetric_brain_finetune.py</span>
+      </div>
+      <div class="fc-desc">
+        Adapts the trained Council to full patient studies using <strong>patient-level train/val splits</strong>
+        — preventing slice-level data leakage. All three backbones are frozen; only classification heads
+        are updated for 4 epochs. Handles NIfTI volumes, DICOM series, and image folders.
+        <br><br>
+        Uses <strong>SHA-256 dataset fingerprinting</strong> (<code>Volumetric_Finetune.json</code>) to
+        skip retraining if the dataset hasn't changed since the last run.
+      </div>
+      <div class="fc-tags">
+        <span class="tag t-run">▶ Run after 01b</span>
+        <span class="tag t-info">4 epochs · frozen backbones · head-only tuning</span>
+        <span class="tag t-info">NIfTI · DICOM · image folders</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 07 -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-blue">07</div>
+      <div class="flow-connector"></div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">📊</span>
+        <span class="fc-name">Ensemble Performance Evaluation</span>
+        <span class="fc-file">07_ensemble_performance_evaluation.py</span>
+      </div>
+      <div class="fc-desc">
+        Zero-training evaluation on the same 20% holdout (random_state=42) used during council training.
+        Reports per-class precision, recall, F1-score, support, overall accuracy, and macro F1.
+        Saves a full confusion matrix to <code>BrainTumor_Confusion_Matrix.csv</code>.
+      </div>
+      <div class="fc-tags">
+        <span class="tag t-info">Same val split as Script 04</span>
+        <span class="tag t-info">BrainTumor_Confusion_Matrix.csv</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 06 -->
+  <div class="flow-row">
+    <div class="flow-spine">
+      <div class="flow-node fn-rose">06</div>
+    </div>
+    <div class="flow-card">
+      <div class="fc-head">
+        <span class="fc-icon">🖥️</span>
+        <span class="fc-name">Clinical Dashboard</span>
+        <span class="fc-file">06_clinical_diagnostic_interface.py</span>
+      </div>
+      <div class="fc-desc">
+        Gradio web application on port 7860. Accepts DICOM series, NIfTI volumes, and MRI/CT images.
+        Runs the full pipeline per-slice: Gatekeeper → Council vote → study-level aggregation.
+        Generates a Grad-CAM saliency overlay on the highest tumour-signal slice and exports a
+        formatted PDF clinical report.
+        <br><br>
+        Slice count is always shown clearly: <em>"1 slice uploaded and analysed"</em> vs
+        <em>"N slices uploaded — M analysed (uniform sampling)"</em>.
+      </div>
+      <div class="fc-tags">
+        <span class="tag t-run">▶ Final step → http://localhost:7860</span>
+        <span class="tag t-fix">🔧 fpdf2 XPos/YPos · nibabel fix · no HYDRA</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /flow-wrap -->
+</section>
+
+<!-- ═══════════════════════════════════════ ARCHITECTURE ══ -->
+<section id="architecture">
+<div class="reveal">
+  <div class="sec-eyebrow">System Design</div>
+  <h2 class="sec-h">Inference Architecture</h2>
+  <p class="sec-lead">Every uploaded scan flows through this exact sequence at runtime inside the dashboard.</p>
+</div>
+
+<div class="arch-wrap reveal">
+<svg class="arch-svg" viewBox="0 0 840 580" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+    <path d="M1,1 L7,4 L1,7" stroke="rgba(79,156,249,.6)" stroke-width="1.3" fill="none"/>
+  </marker>
+  <marker id="arr-red" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+    <path d="M1,1 L7,4 L1,7" stroke="rgba(239,68,68,.6)" stroke-width="1.3" fill="none"/>
+  </marker>
+  <filter id="glow"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+
+<!-- INPUT ROW -->
+<text x="420" y="18" fill="#506080" font-size="9" font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="3">PATIENT SCAN INPUT</text>
+
+<rect x="20"  y="26" width="140" height="50" rx="9" fill="#0c1525" stroke="rgba(79,156,249,.3)" stroke-width="1"/>
+<text x="90"  y="47" fill="#4f9cf9" font-size="10" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">DICOM Series</text>
+<text x="90"  y="62" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">Multiple .dcm files</text>
+
+<rect x="175" y="26" width="140" height="50" rx="9" fill="#0c1525" stroke="rgba(79,156,249,.3)" stroke-width="1"/>
+<text x="245" y="47" fill="#4f9cf9" font-size="10" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">NIfTI Volume</text>
+<text x="245" y="62" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">.nii / .nii.gz</text>
+
+<rect x="330" y="26" width="140" height="50" rx="9" fill="#0c1525" stroke="rgba(79,156,249,.3)" stroke-width="1"/>
+<text x="400" y="47" fill="#4f9cf9" font-size="10" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">MRI / CT Images</text>
+<text x="400" y="62" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">.jpg / .png slices</text>
+
+<rect x="485" y="26" width="140" height="50" rx="9" fill="#0c1525" stroke="rgba(79,156,249,.3)" stroke-width="1"/>
+<text x="555" y="47" fill="#4f9cf9" font-size="10" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">Pre-sliced Folder</text>
+<text x="555" y="62" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">Any image format</text>
+
+<!-- Convergence arrows -->
+<line x1="90"  y1="76" x2="340" y2="134" stroke="rgba(79,156,249,.35)" stroke-width="1.2" marker-end="url(#arr)"/>
+<line x1="245" y1="76" x2="370" y2="134" stroke="rgba(79,156,249,.35)" stroke-width="1.2" marker-end="url(#arr)"/>
+<line x1="400" y1="76" x2="420" y2="134" stroke="rgba(79,156,249,.35)" stroke-width="1.2" marker-end="url(#arr)"/>
+<line x1="555" y1="76" x2="478" y2="134" stroke="rgba(79,156,249,.35)" stroke-width="1.2" marker-end="url(#arr)"/>
+
+<!-- INGEST -->
+<rect x="240" y="138" width="360" height="56" rx="11" fill="#101c30" stroke="rgba(79,156,249,.45)" stroke-width="1.5"/>
+<text x="420" y="162" fill="#edf4ff" font-size="11" font-family="Inter,sans-serif" font-weight="700" text-anchor="middle">Ingest + Skull-strip + Normalise</text>
+<text x="420" y="178" fill="#506080" font-size="8.5" text-anchor="middle" font-family="Inter,sans-serif">Uniform downsample → ≤ 300 slices · All formats → RGB PIL Images</text>
+
+<line x1="420" y1="194" x2="420" y2="218" stroke="rgba(79,156,249,.5)" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- GATEKEEPER -->
+<rect x="240" y="222" width="360" height="56" rx="11" fill="#0a1e14" stroke="rgba(34,197,94,.45)" stroke-width="1.5"/>
+<text x="420" y="246" fill="#22c55e" font-size="11" font-family="Inter,sans-serif" font-weight="700" text-anchor="middle">🚨 Safety Gatekeeper</text>
+<text x="420" y="262" fill="#506080" font-size="8.5" text-anchor="middle" font-family="Inter,sans-serif">EfficientNet-B0 · Brain / NotBrain · reject if NotBrain &gt; 70% · Gatekeeper_v1.pth</text>
+
+<!-- Reject path -->
+<line x1="240" y1="250" x2="148" y2="250" stroke="rgba(239,68,68,.5)" stroke-width="1.3" stroke-dasharray="5,3" marker-end="url(#arr-red)"/>
+<rect x="24" y="232" width="120" height="36" rx="8" fill="#1a0a0a" stroke="rgba(239,68,68,.3)" stroke-width="1"/>
+<text x="84" y="252" fill="#ef4444" font-size="9.5" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">Rejected (OOD)</text>
+<text x="84" y="264" fill="#506080" font-size="7.5" font-family="Inter,sans-serif" text-anchor="middle">Non-brain input</text>
+
+<line x1="420" y1="278" x2="420" y2="304" stroke="rgba(79,156,249,.5)" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- TTA label -->
+<text x="430" y="294" fill="#506080" font-size="7.5" font-family="Inter,sans-serif">TTA (+ mirror)</text>
+
+<!-- COUNCIL SPLIT -->
+<line x1="420" y1="306" x2="210" y2="336" stroke="rgba(79,156,249,.35)" stroke-width="1.2"/>
+<line x1="420" y1="306" x2="420" y2="336" stroke="rgba(79,156,249,.35)" stroke-width="1.2"/>
+<line x1="420" y1="306" x2="628" y2="336" stroke="rgba(79,156,249,.35)" stroke-width="1.2"/>
+
+<!-- SWIN -->
+<rect x="80"  y="338" width="260" height="62" rx="10" fill="#0c1525" stroke="rgba(79,156,249,.4)" stroke-width="1.5"/>
+<text x="210" y="358" fill="#4f9cf9" font-size="10" font-family="Inter,sans-serif" font-weight="700" text-anchor="middle">SwinV2-Tiny</text>
+<text x="210" y="372" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">40% vote · window attention · Swin_5C.pth</text>
+<text x="210" y="386" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">Global texture · 5-class softmax</text>
+
+<!-- CONVNEXT -->
+<rect x="291" y="338" width="258" height="62" rx="10" fill="#0c1525" stroke="rgba(79,156,249,.4)" stroke-width="1.5"/>
+<text x="420" y="358" fill="#4f9cf9" font-size="10" font-family="Inter,sans-serif" font-weight="700" text-anchor="middle">ConvNeXtV2-Nano</text>
+<text x="420" y="372" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">30% vote · rotation invariant · ConvNext_5C.pth</text>
+<text x="420" y="386" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">Spatial stability · 5-class softmax</text>
+
+<!-- MONAI -->
+<rect x="500" y="338" width="258" height="62" rx="10" fill="#0c1525" stroke="rgba(167,139,250,.4)" stroke-width="1.5"/>
+<text x="629" y="358" fill="#a78bfa" font-size="10" font-family="Inter,sans-serif" font-weight="700" text-anchor="middle">MONAI Swin-UNETR</text>
+<text x="629" y="372" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">30% vote · medical pretrain · MONAI_5C.pth</text>
+<text x="629" y="386" fill="#506080" font-size="8"  text-anchor="middle" font-family="Inter,sans-serif">Grad-CAM · anatomical intuition</text>
+
+<!-- MERGE -->
+<line x1="210" y1="400" x2="400" y2="430" stroke="rgba(79,156,249,.35)" stroke-width="1.2"/>
+<line x1="420" y1="400" x2="420" y2="430" stroke="rgba(79,156,249,.35)" stroke-width="1.2"/>
+<line x1="629" y1="400" x2="440" y2="430" stroke="rgba(79,156,249,.35)" stroke-width="1.2"/>
+
+<!-- AGGREGATION -->
+<rect x="220" y="432" width="400" height="56" rx="11" fill="#101c30" stroke="rgba(79,156,249,.45)" stroke-width="1.5"/>
+<text x="420" y="456" fill="#edf4ff" font-size="11" font-family="Inter,sans-serif" font-weight="700" text-anchor="middle">Patient-Level Aggregation</text>
+<text x="420" y="471" fill="#506080" font-size="8.5" text-anchor="middle" font-family="Inter,sans-serif">P = 0.4·P_swin + 0.3·P_conv + 0.3·P_monai · mean across all valid slices</text>
+
+<line x1="420" y1="488" x2="420" y2="510" stroke="rgba(79,156,249,.5)" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- OUTPUT ROW -->
+<rect x="60"  y="513" width="180" height="52" rx="9" fill="#0c1525" stroke="rgba(79,156,249,.3)" stroke-width="1"/>
+<text x="150" y="535" fill="#4f9cf9" font-size="10" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">📋 Diagnostic Report</text>
+<text x="150" y="550" fill="#506080" font-size="7.5" text-anchor="middle" font-family="Inter,sans-serif">Verdict · confidence · slice count</text>
+
+<rect x="260" y="513" width="180" height="52" rx="9" fill="#0c1525" stroke="rgba(167,139,250,.3)" stroke-width="1"/>
+<text x="350" y="535" fill="#a78bfa" font-size="10" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">🔥 Grad-CAM Map</text>
+<text x="350" y="550" fill="#506080" font-size="7.5" text-anchor="middle" font-family="Inter,sans-serif">Peak tumour-signal slice</text>
+
+<rect x="460" y="513" width="180" height="52" rx="9" fill="#0c1525" stroke="rgba(34,197,94,.3)" stroke-width="1"/>
+<text x="550" y="535" fill="#22c55e" font-size="10" font-family="Inter,sans-serif" font-weight="600" text-anchor="middle">📄 PDF Report</text>
+<text x="550" y="550" fill="#506080" font-size="7.5" text-anchor="middle" font-family="Inter,sans-serif">BrainTumor_Report_*.pdf</text>
+
+<!-- fan-out arrows to outputs -->
+<line x1="420" y1="512" x2="200" y2="512" stroke="rgba(79,156,249,.3)" stroke-width="1"/>
+<line x1="200" y1="512" x2="155" y2="512" stroke="rgba(79,156,249,.3)" stroke-width="1" marker-end="url(#arr)"/>
+<line x1="420" y1="512" x2="350" y2="512" stroke="rgba(79,156,249,.3)" stroke-width="1" marker-end="url(#arr)"/>
+<line x1="420" y1="512" x2="550" y2="512" stroke="rgba(79,156,249,.3)" stroke-width="1" marker-end="url(#arr)"/>
+</svg>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════ TECHNOLOGIES ══ -->
+<section id="technologies">
+<div class="reveal">
+  <div class="sec-eyebrow">Tech Stack</div>
+  <h2 class="sec-h">Technologies Used &amp; Why</h2>
+  <p class="sec-lead">Every library was chosen for a specific reason. This section explains each technology, how it fits the system, and what problem it solves.</p>
+</div>
+
+<div class="tech-grid reveal">
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🔥</span><span class="tc-badge tb-blue">Core</span></div>
+    <div class="tc-name">PyTorch</div>
+    <div class="tc-version">≥ 2.5.0 · CUDA 12.8 (cu128)</div>
+    <div class="tc-desc">The deep learning framework powering all model training and inference. CUDA 12.8 wheels are required specifically for the RTX 5060 (Blackwell SM_120 architecture) which is not supported by older torch builds.</div>
+    <div class="tc-why">RTX 5060 requires cu128 wheels; torch.amp (non-deprecated) for AMP; supports all five model architectures used in this project.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🌐</span><span class="tc-badge tb-purple">Council</span></div>
+    <div class="tc-name">timm (SwinV2 + ConvNeXt)</div>
+    <div class="tc-version">≥ 1.0.0</div>
+    <div class="tc-desc">PyTorch Image Models library providing pretrained SwinV2-Tiny and ConvNeXtV2-Nano weights. Both models are loaded with ImageNet pretraining, then fine-tuned on the brain tumour dataset for 12 epochs.</div>
+    <div class="tc-why">Single unified API for two radically different architectures. SwinV2 excels at global texture; ConvNeXt excels at local spatial patterns — complementary strengths for ensemble diversity.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🏥</span><span class="tc-badge tb-purple">Council</span></div>
+    <div class="tc-name">MONAI</div>
+    <div class="tc-version">≥ 1.3.0 + einops</div>
+    <div class="tc-desc">Medical Open Network for AI. Used for the Swin-UNETR backbone (medical imaging pretrained), and the GradCAM implementation that generates the saliency heatmaps on the peak tumour-signal slice.</div>
+    <div class="tc-why">Only library with a Swin-UNETR pretrained on medical images. Its GradCAM implementation works natively with the MONAI Swin-UNETR backbone for explainability without custom layer hooks.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🎯</span><span class="tc-badge tb-amber">Localizer</span></div>
+    <div class="tc-name">Ultralytics (YOLOv11)</div>
+    <div class="tc-version">≥ 8.3.0</div>
+    <div class="tc-desc">Used for YOLOv11n — the nano variant of YOLOv11 for real-time tumour bounding box prediction. Single-pass detection + bounding-box regression with Feature Pyramid Network for multi-scale detection.</div>
+    <div class="tc-why">YOLOv11n is the fastest model that still achieves clinically useful mAP50 (0.516). Mixup disabled because blending anatomical regions creates medically invalid training samples.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🎨</span><span class="tc-badge tb-blue">UI</span></div>
+    <div class="tc-name">Gradio</div>
+    <div class="tc-version">≥ 4.42.0</div>
+    <div class="tc-desc">Web-based AI application framework. Powers the clinical dashboard on port 7860. Handles multi-file upload (DICOM series, NIfTI, images), real-time progress display, and file download for PDF reports.</div>
+    <div class="tc-why">Zero-JavaScript required for a full-featured AI demo interface. Native file upload supports multiple files simultaneously — required for DICOM series upload where each slice is a separate file.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🧠</span><span class="tc-badge tb-cyan">Imaging</span></div>
+    <div class="tc-name">nibabel</div>
+    <div class="tc-version">≥ 5.2.0</div>
+    <div class="tc-desc">Neuroimaging file I/O library for reading NIfTI volumes (.nii, .nii.gz). Used to load volumetric MRI data and extract 2-D axial slices for classification, trimming 15% from each end to avoid skull/noise regions.</div>
+    <div class="tc-why">The only reliable Python library for NIfTI format. Used via <code>nibabel.loadsave.load()</code> (not <code>nib.load()</code>) to avoid a Pylance reportPrivateImportUsage warning on strict type checking.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🏥</span><span class="tc-badge tb-cyan">Imaging</span></div>
+    <div class="tc-name">pydicom</div>
+    <div class="tc-version">≥ 2.4.0</div>
+    <div class="tc-desc">DICOM file reader. Used to parse individual .dcm files, sort them by ImagePositionPatient Z-coordinate (or InstanceNumber fallback) to reconstruct the correct axial ordering of a scan series before inference.</div>
+    <div class="tc-why">DICOM files have no guaranteed filename ordering — proper sorting by Z-position is critical to avoid giving the model slices in the wrong order, which would degrade temporal feature coherence.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">👁️</span><span class="tc-badge tb-green">Vision</span></div>
+    <div class="tc-name">OpenCV + Pillow</div>
+    <div class="tc-version">cv2 ≥ 4.9 · Pillow ≥ 10</div>
+    <div class="tc-desc">OpenCV handles skull-stripping (Otsu thresholding + largest contour), colour map generation for Grad-CAM overlays, and BGR→RGB conversion. Pillow is used for all PIL Image operations and format loading.</div>
+    <div class="tc-why">OpenCV's contour detection is the fastest approach for best-effort skull stripping without a trained segmentation model. Pillow's ImageOps.mirror() provides test-time augmentation with zero latency.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">📄</span><span class="tc-badge tb-green">Reports</span></div>
+    <div class="tc-name">fpdf2</div>
+    <div class="tc-version">≥ 2.7.0</div>
+    <div class="tc-desc">Pure Python PDF generation library. Used to produce the downloadable clinical report including the finding verdict, confidence, probability table, branch notes, and Grad-CAM saliency image.</div>
+    <div class="tc-why">Lightweight, no external dependencies. Uses the new <code>new_x=XPos.LMARGIN, new_y=YPos.NEXT</code> API (not deprecated <code>ln=True</code>) to avoid TypeError on fpdf2 ≥ 2.7.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">📊</span><span class="tc-badge tb-blue">Training</span></div>
+    <div class="tc-name">scikit-learn</div>
+    <div class="tc-version">≥ 1.4.0</div>
+    <div class="tc-desc">Used for stratified train/val splitting, class-weight computation (inverse-frequency balancing), classification report, confusion matrix, accuracy, and macro F1 calculation throughout all training scripts.</div>
+    <div class="tc-why"><code>compute_class_weight("balanced")</code> automatically corrects the class imbalance in the dataset (No Tumor is over-represented). Stratified split ensures each class appears in validation proportionally.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">🐋</span><span class="tc-badge tb-rose">Deploy</span></div>
+    <div class="tc-name">Docker + NVIDIA Container Toolkit</div>
+    <div class="tc-version">CUDA 12.8 base image</div>
+    <div class="tc-desc">Containerised deployment using <code>nvidia/cuda:12.8.0-cudnn9-runtime-ubuntu22.04</code> base. The full system including Python 3.11, all dependencies, and the Gradio dashboard can be deployed with a single <code>docker compose up</code>.</div>
+    <div class="tc-why">Reproducible environment that works across any CUDA 12.8 compatible machine. Weights and datasets are mounted as volumes (not baked into the image) to keep the image size manageable.</div>
+  </div>
+
+  <div class="tech-card">
+    <div class="tc-top"><span class="tc-icon">📡</span><span class="tc-badge tb-amber">Data</span></div>
+    <div class="tc-name">Kaggle API</div>
+    <div class="tc-version">≥ 1.6.0 (auto-upgraded)</div>
+    <div class="tc-desc">All training data is downloaded programmatically via the Kaggle CLI. The download script auto-upgrades the CLI at startup to fix the <code>{current_version}</code> placeholder bug that caused corrupted ZIP downloads, and uses <code>--force</code> to prevent stale partial file resumption.</div>
+    <div class="tc-why">Reproducible data acquisition — any machine with a Kaggle account can recreate the full dataset. The <code>--force</code> flag is critical: without it, partial downloads from previous failed runs corrupt the ZIP.</div>
+  </div>
+
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════ SLICE DISPLAY ══ -->
+<section>
+<div class="reveal">
+  <div class="sec-eyebrow">Input Handling</div>
+  <h2 class="sec-h">Slice Count Display</h2>
+  <p class="sec-lead">The dashboard always clearly shows how many slices were uploaded versus how many were analysed, regardless of input format.</p>
+</div>
+<div class="slice-demo reveal">
+  <div class="slice-card">
+    <div class="slice-icon">🖼️</div>
+    <div class="slice-title">Single Image</div>
+    <div class="slice-desc">Upload one MRI or CT image. The dashboard analyses it directly with no downsampling.</div>
+    <div class="slice-badge">1 slice uploaded and analysed</div>
+  </div>
+  <div class="slice-card">
+    <div class="slice-icon">📁</div>
+    <div class="slice-title">Multi-Slice Study</div>
+    <div class="slice-desc">Upload all slices from one patient. If count ≤ 300, every slice is analysed.</div>
+    <div class="slice-badge">N slices uploaded and all analysed</div>
+  </div>
+  <div class="slice-card">
+    <div class="slice-icon">🧠</div>
+    <div class="slice-title">Large Volume (NIfTI / DICOM)</div>
+    <div class="slice-desc">Studies with &gt;300 slices are uniformly downsampled. 15% is trimmed from each end to remove skull/noise regions.</div>
+    <div class="slice-badge">N slices uploaded — M analysed</div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════ RESULTS ══ -->
+<section id="results">
+<div class="reveal">
+  <div class="sec-eyebrow">Model Performance</div>
+  <h2 class="sec-h">Diagnostic Council Results</h2>
+  <p class="sec-lead">
+    Evaluated on the 20% held-out validation set (2,005 samples) that was never seen during training.
+    Same <code>random_state=42</code> split as training ensures valid out-of-sample estimate.
+    Trained on RTX 5060 Laptop, CUDA 12.8, PyTorch 2.9.1+cu128.
+  </p>
+</div>
+<div class="reveal">
+<table class="results-table">
+  <thead>
+    <tr>
+      <th>Class</th><th>Precision</th><th>Recall</th>
+      <th>F1-Score</th><th>Support</th><th>Grade</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Glioma</td><td class="mono-v">99.07%</td><td class="mono-v">99.07%</td><td class="mono-v">0.9907</td><td>324</td><td><span class="chip-best">Excellent</span></td></tr>
+    <tr><td>Meningioma</td><td class="mono-v">95.45%</td><td class="mono-v">95.74%</td><td class="mono-v">0.9560</td><td>329</td><td><span class="chip-best">Excellent</span></td></tr>
+    <tr><td>No Tumor</td><td class="mono-v">100.00%</td><td class="mono-v">99.86%</td><td class="mono-v">0.9993</td><td>700</td><td><span class="chip-best">Near-Perfect</span></td></tr>
+    <tr><td>Pituitary</td><td class="mono-v">98.31%</td><td class="mono-v">98.86%</td><td class="mono-v">0.9858</td><td>352</td><td><span class="chip-best">Excellent</span></td></tr>
+    <tr><td>Tumor (Generic / CT)</td><td class="mono-v">96.31%</td><td class="mono-v">95.67%</td><td class="mono-v">0.9599</td><td>300</td><td><span class="chip-best">Excellent</span></td></tr>
+    <tr style="background:rgba(79,156,249,.04)">
+      <td><strong>Overall (Weighted)</strong></td>
+      <td class="mono-g"><strong>97.83%</strong></td>
+      <td class="mono-g"><strong>97.84%</strong></td>
+      <td class="mono-g"><strong>0.9783</strong></td>
+      <td><strong>2005</strong></td>
+      <td><span class="chip-best">98.25% Acc</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════ DATASETS ══ -->
+<section id="datasets">
+<div class="reveal">
+  <div class="sec-eyebrow">Training Data</div>
+  <h2 class="sec-h">All Datasets Used</h2>
+  <p class="sec-lead">All datasets are downloaded automatically via the Kaggle API — no manual download required.</p>
+</div>
+<div class="ds-grid reveal">
+  <div class="ds-card">
+    <div class="ds-head"><span class="ds-name">Brain Tumour MRI</span><span class="ds-type dt-base">Base</span></div>
+    <div class="ds-desc">masoudnickparvar/brain-tumor-mri-dataset — Glioma, Meningioma, Pituitary, NoTumor classes</div>
+    <div class="ds-meta">Format: JPEG &nbsp;|&nbsp; <b>~7,000 images</b></div>
+  </div>
+  <div class="ds-card">
+    <div class="ds-head"><span class="ds-name">CT Brain Detection</span><span class="ds-type dt-base">Base</span></div>
+    <div class="ds-desc">ahmedhamada0/brain-tumor-detection — yes/no CT scans → Tumor_Generic / NoTumor</div>
+    <div class="ds-meta">Format: JPEG &nbsp;|&nbsp; <b>~3,000 images</b></div>
+  </div>
+  <div class="ds-card">
+    <div class="ds-head"><span class="ds-name">Chest X-Rays</span><span class="ds-type dt-neg">Negative</span></div>
+    <div class="ds-desc">paultimothymooney/chest-xray-pneumonia — OOD distractor for Gatekeeper training</div>
+    <div class="ds-meta">Format: JPEG &nbsp;|&nbsp; <b>1,500 used</b></div>
+  </div>
+  <div class="ds-card">
+    <div class="ds-head"><span class="ds-name">CelebA Faces</span><span class="ds-type dt-neg">Negative</span></div>
+    <div class="ds-desc">jessicali9530/celeba-dataset — facial photos as OOD distractor for Gatekeeper</div>
+    <div class="ds-meta">Format: JPEG &nbsp;|&nbsp; <b>1,500 used</b></div>
+  </div>
+  <div class="ds-card">
+    <div class="ds-head"><span class="ds-name">LGG Segmentation</span><span class="ds-type dt-vol">Volumetric</span></div>
+    <div class="ds-desc">mateuszbuda/lgg-mri-segmentation — per-patient FLAIR slice folders, 110 LGG patients</div>
+    <div class="ds-meta">Format: TIF → JPEG &nbsp;|&nbsp; <b>~714 MB &nbsp;|&nbsp; 110 patients</b></div>
+  </div>
+  <div class="ds-card">
+    <div class="ds-head"><span class="ds-name">Healthy Brain MRI</span><span class="ds-type dt-vol">Volumetric</span></div>
+    <div class="ds-desc">navoneel/brain-mri-images-for-brain-tumor-detection — no/ subfolder = healthy brains, grouped into synthetic patient folders of 20 slices</div>
+    <div class="ds-meta">Format: JPEG &nbsp;|&nbsp; <b>~200 MB</b></div>
+  </div>
+  <div class="ds-card">
+    <div class="ds-head"><span class="ds-name">YOLO Brain Detection</span><span class="ds-type dt-base">Localizer</span></div>
+    <div class="ds-desc">davidbroberts/brain-tumor-object-detection-datasets — YOLO-format bounding box labels for tumour localisation training (Script 03)</div>
+    <div class="ds-meta">Format: JPEG + YOLO TXT &nbsp;|&nbsp; <b>Configured in brain-tumor.yaml</b></div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════ COMMANDS ══ -->
+<section id="commands">
+<div class="reveal">
+  <div class="sec-eyebrow">GitHub &amp; Run Guide</div>
+  <h2 class="sec-h">Commands</h2>
+  <p class="sec-lead">Complete step-by-step commands for running the project and pushing a clean codebase to GitHub (excluding all datasets and weights).</p>
+</div>
+
+<div class="reveal">
+<div class="code-label">ENVIRONMENT SETUP</div>
+<div class="cmd"><span class="c-cm"># Activate environment</span>
+<span class="c-hi">conda activate rtx50_env</span>
+<span class="c-hi">cd ~/brain_fn</span>
+
+<span class="c-cm"># Fix Kaggle CLI corruption bug — run this FIRST</span>
+<span class="c-hi">pip install kaggle --upgrade</span>
+
+<span class="c-cm"># Install PyTorch for CUDA 12.8 (RTX 5060 requires cu128 wheels)</span>
+<span class="c-hi">pip install torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu128 --upgrade</span>
+
+<span class="c-hi">pip install -r requirements.txt</span></div>
+
+<div class="code-label">RUN ORDER (01–04 auto-skip if already done)</div>
+<div class="cmd"><span class="c-cm"># Scripts 01, 02, 03, 04 will auto-skip — your models are trained</span>
+python 01_neuroimaging_data_acquisition.py   <span class="c-dim"># auto-skip</span>
+python 01b_volumetric_dataset_download.py    <span class="c-warn"># ← run this</span>
+python 02_gatekeeper_model_training.py       <span class="c-dim"># auto-skip</span>
+python 03_tumor_localization_model_training.py <span class="c-dim"># auto-skip</span>
+python 04_diagnostic_ensemble_training.py    <span class="c-dim"># auto-skip</span>
+python 05_volumetric_brain_finetune.py       <span class="c-warn"># ← run this</span>
+python 07_ensemble_performance_evaluation.py <span class="c-hi"># evaluate</span>
+python 06_clinical_diagnostic_interface.py   <span class="c-hi"># launch dashboard</span></div>
+
+<div class="code-label">GITHUB — DELETE OLD CONTENT, PUSH CLEAN CODE</div>
+<div class="cmd"><span class="c-cm"># Step 1 — Untrack all files (respects new .gitignore)</span>
+<span class="c-hi">git rm -r --cached .</span>
+<span class="c-hi">git add .gitignore</span>
+<span class="c-hi">git commit -m "Apply clean .gitignore — exclude datasets and weights"</span>
+
+<span class="c-cm"># Step 2 — Stage all code files</span>
+<span class="c-hi">git add \
+  01_neuroimaging_data_acquisition.py \
+  01b_volumetric_dataset_download.py \
+  02_gatekeeper_model_training.py \
+  03_tumor_localization_model_training.py \
+  04_diagnostic_ensemble_training.py \
+  05_volumetric_brain_finetune.py \
+  06_clinical_diagnostic_interface.py \
+  07_ensemble_performance_evaluation.py \
+  requirements.txt Dockerfile docker-compose.yml \
+  brain-tumor.yaml gatekeeper_class_map.json \
+  gatekeeper_classes.json README.md index.html LICENSE</span>
+
+<span class="c-hi">git commit -m "Brain Tumor Detection — clean codebase v1.0"</span>
+<span class="c-hi">git push origin main</span>
+
+<span class="c-cm"># If rejected due to history mismatch:</span>
+<span class="c-warn">git push origin main --force</span></div>
+
+<div class="code-label">REMOVE SPECIFIC OLD FILES FROM GITHUB</div>
+<div class="cmd"><span class="c-cm"># Remove hydra_core.py if it's still tracked</span>
+<span class="c-hi">git rm --cached hydra_core.py</span>
+<span class="c-hi">git rm --cached HYDRA_Confusion_Matrix.csv</span>
+<span class="c-hi">git commit -m "Remove old naming artifacts"</span>
+<span class="c-hi">git push origin main</span>
+
+<span class="c-cm"># Permanently erase large files from ALL git history</span>
+pip install git-filter-repo
+<span class="c-warn">git filter-repo --path dataset_ensemble/ --invert-paths --force</span>
+<span class="c-warn">git push origin main --force</span></div>
+
+<div class="code-label">DOCKER</div>
+<div class="cmd"><span class="c-hi">docker build -t brain-tumor-detection:latest .</span>
+<span class="c-hi">docker compose up</span>
+<span class="c-cm"># → http://localhost:7860</span></div>
+</div>
+</section>
+
+<footer>
+  <div class="ft-brand">Brain Tumor Detection — AI Clinical Analysis System</div>
+  <p>RTX 5060 Laptop · CUDA 12.8 · Python 3.11 · WSL2 Ubuntu 22.04 · For research and educational use only</p>
+</footer>
+
+<script>
+// Scroll reveal
+const obs = new IntersectionObserver(
+  entries => entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('on') }),
+  { threshold: 0.1 }
+);
+document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+</script>
+</body>
+</html>

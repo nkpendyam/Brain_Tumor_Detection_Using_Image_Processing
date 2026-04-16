@@ -1,0 +1,121 @@
+
+---
+### 🎨 4. Presentation `index.html`
+This is a standalone, visually rich HTML presentation. It uses CSS flowcharts, modern typography, and explains the tech stack professionally. No external dependencies required.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brain Tumor Detection System | Architecture & Pipeline</title>
+<style>
+:root{--bg:#0b1220;--card:#111827;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--green:#10b981;--red:#ef4444;--font:system-ui,-apple-system,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.6;padding:2rem}
+h1,h2,h3{color:#f8fafc;letter-spacing:-0.02em}
+.container{max-width:1100px;margin:0 auto}
+.hero{text-align:center;padding:3rem 1rem 2rem;border-bottom:1px solid #1e293b;margin-bottom:3rem}
+.hero h1{font-size:2.5rem;background:linear-gradient(90deg,var(--accent),var(--green));-webkit-background-clip:text;color:transparent}
+.badge{display:inline-block;background:#1e293b;color:var(--accent);padding:4px 12px;border-radius:99px;font-size:0.8rem;margin-bottom:1rem}
+
+.section{margin-bottom:3rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.5rem}
+.card{background:var(--card);padding:1.5rem;border-radius:12px;border:1px solid #1e293b}
+.card h3{margin-bottom:0.5rem;color:var(--accent)}
+.card ul{padding-left:1.2rem;color:var(--muted)}
+.card li{margin-bottom:0.4rem}
+
+.flowchart{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:0.5rem;margin:2rem 0}
+.step{background:#1e293b;padding:0.8rem 1.2rem;border-radius:8px;text-align:center;min-width:140px;position:relative}
+.step::after{content:'→';position:absolute;right:-1.2rem;top:50%;transform:translateY(-50%);color:var(--muted);font-size:1.5rem}
+.step:last-child::after{display:none}
+.step strong{color:var(--accent);display:block}
+.step span{font-size:0.85rem;color:var(--muted)}
+
+.tech-table{width:100%;border-collapse:collapse;margin-top:1rem}
+.tech-table th,.tech-table td{padding:0.8rem;text-align:left;border-bottom:1px solid #1e293b}
+.tech-table th{color:var(--muted);font-size:0.85rem;text-transform:uppercase}
+.tech-table td{color:var(--text)}
+.code{background:#0f172a;padding:0.3rem 0.5rem;border-radius:4px;font-family:monospace;color:var(--accent);font-size:0.9rem}
+
+.footer{text-align:center;padding:2rem 0;border-top:1px solid #1e293b;color:var(--muted);font-size:0.85rem;margin-top:3rem}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="hero">
+        <div class="badge">Clinical AI Research Project</div>
+        <h1>Brain Tumor Detection System</h1>
+        <p style="color:var(--muted);max-width:700px;margin:0 auto">A multi-stage, ensemble-powered AI pipeline for automated neuroimaging analysis. Combines spatial gating, object detection, and transformer-based classification for high-fidelity diagnostic support.</p>
+    </div>
+
+    <div class="section">
+        <h2>🔄 Execution Pipeline</h2>
+        <div class="flowchart">
+            <div class="step"><strong>📥 Intake</strong><span>MRI / CT / DICOM / NIfTI</span></div>
+            <div class="step"><strong>🚨 Gatekeeper</strong><span>EfficientNet-B0<br>Filters OOD</span></div>
+            <div class="step"><strong>🎯 Localizer</strong><span>YOLOv11n<br>ROI Extraction</span></div>
+            <div class="step"><strong>🏛️ Council</strong><span>SwinV2 + ConvNeXt + MONAI</span></div>
+            <div class="step"><strong>📊 Aggregation</strong><span>Patient-Level Consensus</span></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>⚙️ Technology Stack & Rationale</h2>
+        <div class="grid">
+            <div class="card">
+                <h3>Why EfficientNet-B0?</h3>
+                <p style="color:var(--muted)">Acts as a safety gate to reject non-brain inputs (X-rays, photos) with 70% confidence threshold. Chosen for its low latency and high precision, preventing false positives in downstream expensive models.</p>
+            </div>
+            <div class="card">
+                <h3>Why YOLOv11n?</h3>
+                <p style="color:var(--muted)">State-of-the-art real-time object detection. Forces the pipeline to focus on local tumor regions rather than global skull anatomy, improving spatial awareness before classification.</p>
+            </div>
+            <div class="card">
+                <h3>Why the 3-Branch Council?</h3>
+                <ul><li><strong>SwinV2-Tiny (40%):</strong> Windowed attention for global texture mapping.</li><li><strong>ConvNeXtV2 (30%):</strong> Modern CNN for rotation invariance & spatial stability.</li><li><strong>MONAI (30%):</strong> Medical-domain pretraining for clinical feature extraction.</li></ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🐳 Docker & Reproducibility</h2>
+        <p style="color:var(--muted)">The project is containerized for zero-dependency deployment. CUDA 12.8 ensures compatibility with modern RTX 40xx/50xx architectures.</p>
+        <table class="tech-table">
+            <tr><th>Component</th><th>Implementation</th></tr>
+            <tr><td>Base Image</td><td><code>nvidia/cuda:12.8.0-runtime-ubuntu22.04</code></td></tr>
+            <tr><td>Framework</td><td>PyTorch 2.5+, TorchVision, TORCH_CUDA</td></tr>
+            <tr><td>Medical IO</td><td>Nibabel, PyDicom, OpenCV-Headless</td></tr>
+            <tr><td>UI/Export</td><td>Gradio 4.42+, FPDF2</td></tr>
+            <tr><td>Deployment</td><td>Exposed port 7860, volume-mounted datasets</td></tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>📊 Validation Results</h2>
+        <p style="color:var(--muted)">Evaluated on a 20% stratified hold-out set (2005 samples). Weighted-vote consensus prevents single-model overconfidence.</p>
+        <div class="grid" style="margin-top:1rem">
+            <div class="card" style="text-align:center;border-left:4px solid var(--green)">
+                <div style="font-size:2rem;font-weight:800;color:var(--green)">98.25%</div>
+                <div style="color:var(--muted)">Overall Accuracy</div>
+            </div>
+            <div class="card" style="text-align:center;border-left:4px solid var(--accent)">
+                <div style="font-size:2rem;font-weight:800;color:var(--accent)">0.9783</div>
+                <div style="color:var(--muted)">Macro F1-Score</div>
+            </div>
+            <div class="card" style="text-align:center;border-left:4px solid var(--muted)">
+                <div style="font-size:2rem;font-weight:800;color:var(--muted)">≤300</div>
+                <div style="color:var(--muted)">Max Slices / Patient</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Research & Educational Use Only • Not a Certified Medical Device • CUDA 12.8 Optimized</p>
+        <p style="margin-top:0.5rem">© 2026 Brain Tumor Detection Project</p>
+    </div>
+</div>
+</body>
+</html>

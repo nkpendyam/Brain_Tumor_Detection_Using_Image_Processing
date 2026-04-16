@@ -1,0 +1,74 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+.eggs/
+*.egg-info/
+build/
+dist/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.conda/
+
+# ── Model weights (use Git LFS or cloud storage — too large for git) ──────────
+*.pth
+*.pt
+*.torchscript
+Gatekeeper_v1.pth
+Gatekeeper_Clinical.pth
+Swin_5C.pth
+ConvNext_5C.pth
+MONAI_5C.pth
+yolo11n.pt
+yolo26n.pt
+
+# ── Datasets (never commit — too large) ──────────────────────────────────────
+dataset_ensemble/
+dataset_volumetric/
+dataset_negatives/
+dataset_faces/
+dataset_yolo_detection/
+staging_gatekeeper/
+tmp_*/
+
+# ── YOLO training runs ────────────────────────────────────────────────────────
+runs/
+mlruns/
+
+# ── Generated reports & temp files ───────────────────────────────────────────
+BrainTumor_Report_*.pdf
+_btd_tmp_heatmap.jpg
+BrainTumor_Confusion_Matrix.csv
+Volumetric_Finetune.json
+
+# ── Neuroimaging raw data ─────────────────────────────────────────────────────
+*.nii
+*.nii.gz
+*.dcm
+
+# ── Kaggle credentials — NEVER commit ─────────────────────────────────────────
+kaggle.json
+.kaggle/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.ipynb
+.ipynb_checkpoints/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Gradio ────────────────────────────────────────────────────────────────────
+.gradio/
+
+# ── Old naming artifacts (cleaned up) ────────────────────────────────────────
+HYDRA_*.pth
+HYDRA_*.csv
+HYDRA_*.json
+HYDRA_*.pdf
+hydra_core.py

@@ -1,0 +1,49 @@
+# ── Datasets (mounted at runtime via volumes) ─────────────────────────────────
+dataset_ensemble/
+dataset_volumetric/
+dataset_negatives/
+dataset_faces/
+dataset_yolo_detection/
+staging_gatekeeper/
+tmp_*/
+
+# ── Model weights (mounted at runtime via volumes) ────────────────────────────
+*.pth
+*.pt
+*.torchscript
+
+# ── Training artifacts ────────────────────────────────────────────────────────
+runs/
+mlruns/
+*.pdf
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.eggs/
+*.egg-info/
+
+# ── Dev tooling ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.ipynb
+.ipynb_checkpoints/
+
+# ── Credentials (never bake into image) ───────────────────────────────────────
+kaggle.json
+.kaggle/
+
+# ── Docs / non-runtime files ──────────────────────────────────────────────────
+README.md
+COMMANDS.md
+GITHUB_CLEANUP.md
+*.txt
+!requirements.txt
+Problems.txt
+tree.txt
+LICENSE

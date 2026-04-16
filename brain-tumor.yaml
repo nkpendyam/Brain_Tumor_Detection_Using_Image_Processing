@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# HYDRA — YOLO Tumour Localizer Dataset Configuration
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# IMPORTANT: Update 'path' below to match where your YOLO-format detection
+# dataset lives.  If you have the original data from the backup at
+# ~/backup/datasets/brain-tumor/, use that path.
+#
+# Expected directory layout:
+#
+#   <path>/
+#   ├── images/
+#   │   ├── train/   ← JPEG/PNG brain scan images
+#   │   └── val/
+#   └── labels/
+#       ├── train/   ← YOLO .txt annotation files (one per image)
+#       └── val/
+#
+# Each .txt file: one line per bounding box → class_id cx cy w h (normalised)
+# class_id 0 = tumor
+#
+# Where to get a labeled YOLO brain dataset:
+#   Kaggle: https://www.kaggle.com/datasets/davidbroberts/brain-tumor-object-detection-datasets
+#   Or use Roboflow to convert your NIfTI/DICOM labels to YOLO format.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Absolute or relative path to the dataset root
+# Update this to your actual path if different:
+path: dataset_yolo_detection
+
+# Train / validation image sub-directories (relative to 'path')
+train: images/train
+val:   images/val
+
+# Number of classes
+nc: 1
+
+# Class names
+names:
+  0: tumor
