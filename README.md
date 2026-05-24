@@ -222,6 +222,9 @@ python 07_ensemble_performance_evaluation.py
 # ── Launch clinical dashboard
 python 06_clinical_diagnostic_interface.py
 # Open: http://localhost:7860
+
+# Optional remote tunnel; keep disabled for clinical/private scans
+BTD_SHARE=1 python 06_clinical_diagnostic_interface.py
 ```
 
 ### Skip Logic Summary

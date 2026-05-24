@@ -36,7 +36,7 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 &
 WORKDIR /app
 
 # ── Python Dependencies ───────────────────────────────────────────────────────
-COPY requirements.txt .
+COPY requirements.txt constraints.txt .
 
 # Install PyTorch for CUDA 12.8 first (Blackwell-compatible wheels)
 RUN pip3 install --no-cache-dir --upgrade pip && \
@@ -45,7 +45,7 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
         --index-url https://download.pytorch.org/whl/cu128
 
 # Install remaining requirements
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # ── Application Code ──────────────────────────────────────────────────────────
 COPY . .
@@ -57,5 +57,7 @@ ENV KAGGLE_CONFIG_DIR=/root/.kaggle
 # ── Runtime ───────────────────────────────────────────────────────────────────
 EXPOSE 7860
 ENV GRADIO_SERVER_NAME=0.0.0.0
+ENV BTD_SERVER_NAME=0.0.0.0
+ENV BTD_SHARE=0
 
 CMD ["python", "06_clinical_diagnostic_interface.py"]

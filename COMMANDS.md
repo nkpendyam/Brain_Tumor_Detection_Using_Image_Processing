@@ -81,6 +81,9 @@ python 07_ensemble_performance_evaluation.py
 
 # Launch dashboard  →  http://localhost:7860
 python 06_clinical_diagnostic_interface.py
+
+# Optional remote tunnel; keep off for clinical/private scans
+BTD_SHARE=1 python 06_clinical_diagnostic_interface.py
 ```
 
 ---
@@ -209,8 +212,8 @@ python 06_clinical_diagnostic_interface.py
 
 ### Kaggle download fails
 ```bash
-cat ~/.kaggle/kaggle.json   # should show your username and key
-# If empty: cp kaggle.json ~/.kaggle/kaggle.json && chmod 600 ~/.kaggle/kaggle.json
+test -s ~/.kaggle/kaggle.json && chmod 600 ~/.kaggle/kaggle.json
+# If missing: cp kaggle.json ~/.kaggle/kaggle.json && chmod 600 ~/.kaggle/kaggle.json
 ```
 
 ### MLflow / ClearML warnings during YOLO training

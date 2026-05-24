@@ -15,6 +15,7 @@ tmp_*/
 # ── Training artifacts ────────────────────────────────────────────────────────
 runs/
 mlruns/
+reports/
 *.pdf
 
 # ── Git ───────────────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ __pycache__/
 # ── Dev tooling ───────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+.gradio/
 *.ipynb
 .ipynb_checkpoints/
 
@@ -44,6 +46,7 @@ COMMANDS.md
 GITHUB_CLEANUP.md
 *.txt
 !requirements.txt
+!constraints.txt
 Problems.txt
 tree.txt
 LICENSE

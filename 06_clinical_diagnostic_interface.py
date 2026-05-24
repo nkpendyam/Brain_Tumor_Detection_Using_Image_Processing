@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import traceback
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
@@ -97,6 +99,16 @@ MAX_SLICES  = 300
 TRIM_FRAC   = 0.15
 OOD_THRESH  = 0.70
 
+MAX_FILES              = int(os.getenv("BTD_MAX_FILES", "512"))
+MAX_TOTAL_UPLOAD_BYTES = int(os.getenv("BTD_MAX_TOTAL_MB", "2048")) * 1024 * 1024
+MAX_SINGLE_FILE_BYTES  = int(os.getenv("BTD_MAX_FILE_MB", "512")) * 1024 * 1024
+MAX_IMAGE_PIXELS       = int(os.getenv("BTD_MAX_IMAGE_PIXELS", "40000000"))
+MAX_NIFTI_VOXELS       = int(os.getenv("BTD_MAX_NIFTI_VOXELS", "100000000"))
+
+REPORT_DIR = Path(os.getenv("BTD_REPORT_DIR", "reports"))
+
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
 W_GATE = (
     Path("Gatekeeper_Clinical.pth") if Path("Gatekeeper_Clinical.pth").exists()
     else Path("Gatekeeper_v1.pth")
@@ -108,6 +120,13 @@ W_CLS   = Path("gatekeeper_class_map.json")
 W_YOLO  = Path("runs/detect/tumor_localizer/weights/best.pt")
 
 PROJECT_NAME = "Brain Tumor Detection"
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ── Model loading ─────────────────────────────────────────────────────────────
@@ -205,31 +224,84 @@ def _uni(length: int, cap: int) -> np.ndarray:
 
 # ── Ingest ────────────────────────────────────────────────────────────────────
 
+def _upload_path(f: Any) -> str:
+    return str(f.name) if hasattr(f, "name") else str(f)
+
+
+def _mb(n: int) -> float:
+    return n / (1024 * 1024)
+
+
+def _validate_uploads(file_list: List[Any]) -> Tuple[Optional[str], List[str]]:
+    paths = [_upload_path(f) for f in file_list]
+    if len(paths) > MAX_FILES:
+        return f"Upload rejected: maximum {MAX_FILES} files per study.", paths
+
+    total = 0
+    allowed = (".dcm", ".nii", ".nii.gz", ".jpg", ".jpeg", ".png")
+    for p in paths:
+        low = p.lower()
+        if not low.endswith(allowed):
+            return f"Upload rejected: unsupported file type for `{Path(p).name}`.", paths
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            return f"Upload rejected: could not read `{Path(p).name}`.", paths
+        if size > MAX_SINGLE_FILE_BYTES:
+            return (
+                f"Upload rejected: `{Path(p).name}` is {_mb(size):.1f} MB; "
+                f"limit is {_mb(MAX_SINGLE_FILE_BYTES):.0f} MB."
+            ), paths
+        total += size
+
+    if total > MAX_TOTAL_UPLOAD_BYTES:
+        return (
+            f"Upload rejected: total study size is {_mb(total):.1f} MB; "
+            f"limit is {_mb(MAX_TOTAL_UPLOAD_BYTES):.0f} MB."
+        ), paths
+    return None, paths
+
+
 def _load_nifti(path: str) -> List[Image.Image]:
     io = nib.load(path)         # type: ignore[reportPrivateImportUsage]
-    vol: np.ndarray = io.get_fdata()  # type: ignore[attr-defined]
-    depth = int(vol.shape[2])
+    shape = tuple(int(v) for v in io.shape[:3])  # type: ignore[attr-defined]
+    if len(shape) < 3:
+        return []
+    voxels = int(np.prod(shape))
+    if voxels > MAX_NIFTI_VOXELS:
+        raise ValueError(
+            f"NIfTI volume has {voxels:,} voxels; limit is {MAX_NIFTI_VOXELS:,}."
+        )
+    data = io.dataobj  # type: ignore[attr-defined]
+    depth = int(shape[2])
     s, e  = int(depth * TRIM_FRAC), int(depth * (1 - TRIM_FRAC))
     idxs  = (_uni(e - s, MAX_SLICES) + s).astype(int)
     out: List[Image.Image] = []
     for i in idxs:
-        raw = _norm(vol[:, :, i])
+        arr = np.asarray(data[:, :, i])
+        if arr.ndim > 2:
+            arr = arr[..., 0]
+        raw = _norm(arr)
         rgb = cv2.cvtColor(raw, cv2.COLOR_GRAY2RGB)
         out.append(Image.fromarray(_skull_strip(rgb)))
     return out
 
 
 def _load_dicom(files: List[str]) -> List[Image.Image]:
-    recs: list[tuple[float, Any]] = []
+    recs: list[tuple[float, str]] = []
     for fp in files:
         try:
-            ds = pydicom.dcmread(fp, force=True)  # type: ignore[union-attr]
+            ds = pydicom.dcmread(fp, force=True, stop_before_pixels=True)  # type: ignore[union-attr]
+            rows = int(getattr(ds, "Rows", 0) or 0)
+            cols = int(getattr(ds, "Columns", 0) or 0)
+            if rows and cols and rows * cols > MAX_IMAGE_PIXELS:
+                continue
             key: float = (
                 float(ds.ImagePositionPatient[2]) if hasattr(ds, "ImagePositionPatient")  # type: ignore[union-attr]
                 else float(ds.InstanceNumber) if hasattr(ds, "InstanceNumber")             # type: ignore[union-attr]
                 else float(len(recs))
             )
-            recs.append((key, ds))
+            recs.append((key, fp))
         except Exception:
             continue
     recs.sort(key=lambda x: x[0])
@@ -238,7 +310,8 @@ def _load_dicom(files: List[str]) -> List[Image.Image]:
     out: List[Image.Image] = []
     for i in idxs:
         try:
-            raw = _norm(dcms[i].pixel_array.astype(np.float32))  # type: ignore[union-attr]
+            ds = pydicom.dcmread(dcms[i], force=True)  # type: ignore[union-attr]
+            raw = _norm(ds.pixel_array.astype(np.float32))  # type: ignore[union-attr]
             rgb = cv2.cvtColor(raw, cv2.COLOR_GRAY2RGB) if raw.ndim == 2 else raw
             out.append(Image.fromarray(_skull_strip(rgb)))
         except Exception:
@@ -248,7 +321,7 @@ def _load_dicom(files: List[str]) -> List[Image.Image]:
 
 def ingest(file_list: List[Any]) -> List[Image.Image]:
     if not file_list: return []
-    paths: List[str] = [str(f.name) if hasattr(f, "name") else str(f) for f in file_list]
+    paths: List[str] = [_upload_path(f) for f in file_list]
     dcm = [p for p in paths if p.lower().endswith(".dcm")]
     if dcm: return _load_dicom(dcm)
     for p in sorted(paths):
@@ -257,7 +330,12 @@ def ingest(file_list: List[Any]) -> List[Image.Image]:
     for p in sorted(paths):
         if p.lower().endswith((".jpg", ".jpeg", ".png")):
             try:
-                slices.append(Image.fromarray(_skull_strip(np.array(Image.open(p).convert("RGB")))))
+                with Image.open(p) as img:
+                    w, h = img.size
+                    if w * h > MAX_IMAGE_PIXELS:
+                        continue
+                    rgb = img.convert("RGB")
+                    slices.append(Image.fromarray(_skull_strip(np.array(rgb))))
             except Exception:
                 continue
     idxs = _uni(len(slices), MAX_SLICES).astype(int)
@@ -463,41 +541,40 @@ def _pdf_report(
         doc.cell(0, 6, f"  {bname}: {note}",
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    # ── YOLO DETECTION IMAGE ──
-    tmp_det = None
-    if detection_img is not None and det_count > 0:
-        tmp_det = "_btd_tmp_detection.jpg"
-        Image.fromarray(detection_img).save(tmp_det, quality=95)
-        doc.ln(3)
-        doc.set_font("Helvetica", "B", 11)
-        doc.cell(0, 7, f"Tumour Localisation - {det_count} Region(s) Detected",
-                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        doc.image(tmp_det, x=45, w=120)
+    with tempfile.TemporaryDirectory(prefix="btd_report_") as tmp_dir:
+        tmp_root = Path(tmp_dir)
 
-    # ── SALIENCY MAP ──
-    tmp_heat = None
-    if heatmap is not None:
-        tmp_heat = "_btd_tmp_heatmap.jpg"
-        Image.fromarray(heatmap).save(tmp_heat, quality=95)
-        doc.ln(3)
-        doc.set_font("Helvetica", "B", 11)
-        doc.cell(0, 7, "AI Saliency Map (Grad-CAM - Peak Signal Slice)",
-                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        doc.image(tmp_heat, x=45, w=120)
+        # ── YOLO DETECTION IMAGE ──
+        if detection_img is not None and det_count > 0:
+            tmp_det = tmp_root / "detection.jpg"
+            Image.fromarray(detection_img).save(tmp_det, quality=95)
+            doc.ln(3)
+            doc.set_font("Helvetica", "B", 11)
+            doc.cell(0, 7, f"Tumour Localisation - {det_count} Region(s) Detected",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            doc.image(str(tmp_det), x=45, w=120)
 
-    doc.ln(6)
-    doc.set_font("Helvetica", "I", 8)
-    doc.set_text_color(100, 100, 100)
-    doc.multi_cell(0, 4,
-        "For research and educational use only. This AI output is not a "
-        "standalone medical diagnosis. Consult a qualified radiologist.")
+        # ── SALIENCY MAP ──
+        if heatmap is not None:
+            tmp_heat = tmp_root / "heatmap.jpg"
+            Image.fromarray(heatmap).save(tmp_heat, quality=95)
+            doc.ln(3)
+            doc.set_font("Helvetica", "B", 11)
+            doc.cell(0, 7, "AI Saliency Map (Grad-CAM - Peak Signal Slice)",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            doc.image(str(tmp_heat), x=45, w=120)
 
-    out = f"BrainTumor_Report_{int(datetime.now().timestamp())}.pdf"
-    doc.output(out)
-    for tmp in (tmp_det, tmp_heat):
-        if tmp and os.path.exists(tmp):
-            os.remove(tmp)
-    return out
+        doc.ln(6)
+        doc.set_font("Helvetica", "I", 8)
+        doc.set_text_color(100, 100, 100)
+        doc.multi_cell(0, 4,
+            "For research and educational use only. This AI output is not a "
+            "standalone medical diagnosis. Consult a qualified radiologist.")
+
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        out = REPORT_DIR / f"BrainTumor_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.pdf"
+        doc.output(str(out))
+        return str(out)
 
 
 # ── Markdown report ───────────────────────────────────────────────────────────
@@ -605,7 +682,14 @@ def run_diagnostic(
         return "## Upload a brain scan to begin analysis.", None, None, None, None
 
     files: List[Any] = list(file_list)
-    slices = ingest(files)
+    upload_error, _ = _validate_uploads(files)
+    if upload_error:
+        return f"## {upload_error}", None, None, None, None
+
+    try:
+        slices = ingest(files)
+    except Exception as e:
+        return f"## Could not process upload.\n{e}", None, None, None, None
     total_slices = len(slices)
 
     if total_slices == 0:
@@ -743,7 +827,11 @@ def _status_html(n: int = 0) -> str:
 
 
 def _on_upload(f: Any) -> str:
-    return _status_html(len(f) if f else 0)
+    files = list(f) if f else []
+    upload_error, _ = _validate_uploads(files) if files else (None, [])
+    if upload_error:
+        return _status_html(len(files)) + f'<div class="warn-box">{upload_error}</div>'
+    return _status_html(len(files))
 
 
 # ── CSS (Dark Theme — Premium Glassmorphism) ──────────────────────────────────
@@ -943,6 +1031,12 @@ footer { display: none !important; }
   color: var(--red);
 }
 .chip-ico { font-size: .7rem; }
+
+.warn-box {
+  margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+  background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.25);
+  color: #fecdd3; font-size: .82rem; line-height: 1.45;
+}
 
 /* ── Report markdown ── */
 .report-out .prose { color: var(--text) !important; }
@@ -1219,10 +1313,13 @@ with gr.Blocks(title="Brain Tumor Detection") as app:
 
 
 if __name__ == "__main__":
+    server_name = os.getenv("BTD_SERVER_NAME", os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"))
+    server_port = int(os.getenv("BTD_SERVER_PORT", "7860"))
+    share = _env_bool("BTD_SHARE", False)
     app.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        share=True,
+        server_name=server_name,
+        server_port=server_port,
+        share=share,
         theme=gr.themes.Base(
             primary_hue="cyan",
             secondary_hue="indigo",

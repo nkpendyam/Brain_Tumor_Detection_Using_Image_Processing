@@ -40,7 +40,10 @@ mlruns/
 
 # ── Generated reports & temp files ───────────────────────────────────────────
 BrainTumor_Report_*.pdf
+reports/
+test_artifacts/
 _btd_tmp_heatmap.jpg
+_btd_tmp_detection.jpg
 BrainTumor_Confusion_Matrix.csv
 Volumetric_Finetune.json
 

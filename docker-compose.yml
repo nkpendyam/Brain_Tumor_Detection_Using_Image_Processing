@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   btd-ai:
     build: .
@@ -28,6 +26,8 @@ services:
 
     environment:
       - GRADIO_SERVER_NAME=0.0.0.0
+      - BTD_SERVER_NAME=0.0.0.0
+      - BTD_SHARE=0
       - CUDA_VISIBLE_DEVICES=0
       - TF_ENABLE_ONEDNN_OPTS=0
 
