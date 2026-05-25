@@ -42,6 +42,8 @@ kaggle.json
 README.md
 COMMANDS.md
 GITHUB_CLEANUP.md
+docs/
+tests/
 *.txt
 Problems.txt
 tree.txt

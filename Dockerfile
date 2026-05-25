@@ -3,7 +3,7 @@
 # Base: CUDA 12.8 + cuDNN 9 — required for RTX 5060 (Blackwell / SM 120)
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM nvidia/cuda:12.8.0-cudnn9-runtime-ubuntu22.04
+FROM nvidia/cuda:12.8.0-cudnn-runtime-ubuntu22.04
 
 # Suppress interactive timezone prompts during apt installs
 ENV DEBIAN_FRONTEND=noninteractive
@@ -38,10 +38,10 @@ WORKDIR /app
 # ── Python Dependencies ───────────────────────────────────────────────────────
 COPY requirements.txt .
 
-# Install PyTorch for CUDA 12.8 first (Blackwell-compatible wheels)
+# Install pinned PyTorch CUDA 12.8 wheels first (Blackwell-compatible).
 RUN pip3 install --no-cache-dir --upgrade pip && \
     pip3 install --no-cache-dir \
-        torch torchvision torchaudio \
+        torch==2.9.0+cu128 torchvision==0.24.0+cu128 torchaudio==2.9.0+cu128 \
         --index-url https://download.pytorch.org/whl/cu128
 
 # Install remaining requirements

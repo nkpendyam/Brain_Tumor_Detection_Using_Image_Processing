@@ -1,7 +1,3 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# HYDRA — .gitignore
-# ─────────────────────────────────────────────────────────────────────────────
-
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -16,9 +12,10 @@ dist/
 
 # ── Virtual environments ──────────────────────────────────────────────────────
 .env
-.venv
+.venv/
 venv/
 env/
+.conda/
 
 # ── Datasets (too large for git) ──────────────────────────────────────────────
 dataset_ensemble/
@@ -33,30 +30,56 @@ tmp_*/
 *.tar.gz
 
 # ── Trained model weights (use Git LFS or cloud storage) ─────────────────────
+*.pth
+*.pt
+*.torchscript
+Gatekeeper_v1.pth
+Gatekeeper_Clinical.pth
+Swin_5C.pth
+ConvNext_5C.pth
+MONAI_5C.pth
+yolo11n.pt
+yolo26n.pt
 HYDRA_Gatekeeper_v1.pth
 HYDRA_Swin_Council.pth
 HYDRA_ConvNext_Council.pth
 HYDRA_MONAI_Council.pth
-HYDRA_Volumetric_Finetune.json
-*.pth
-*.pt
-*.torchscript
-yolo11n.pt
-yolo26n.pt
 
-# ── YOLO training runs ────────────────────────────────────────────────────────
+# ── YOLO / experiment tracking runs ──────────────────────────────────────────
 runs/
 mlruns/
+.clearml/
 
-# ── Generated reports ─────────────────────────────────────────────────────────
+# ── Generated reports & temp files ───────────────────────────────────────────
+BrainTumor_Report_*.pdf
 HYDRA_Report_*.pdf
+*.odf
+*.odt
+*.ods
+*.odp
+*.docx
+reports/
+test_artifacts/
+audit_report*.txt
 *_heatmap_tmp.jpg
+_btd_tmp_heatmap.jpg
+_btd_tmp_detection.jpg
+BrainTumor_Confusion_Matrix.csv
+Volumetric_Finetune.json
+HYDRA_Volumetric_Finetune.json
 
-# ── Jupyter ───────────────────────────────────────────────────────────────────
+# ── Neuroimaging raw data ─────────────────────────────────────────────────────
+*.nii
+*.nii.gz
+*.dcm
+
+# ── Kaggle credentials — NEVER commit ─────────────────────────────────────────
+kaggle.json
+.kaggle/
+
+# ── Jupyter / IDE ─────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb
-
-# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.code-workspace
@@ -66,13 +89,17 @@ HYDRA_Report_*.pdf
 Thumbs.db
 desktop.ini
 
-# ── NIfTI / DICOM (keep out of git) ──────────────────────────────────────────
-*.nii
-*.nii.gz
-*.dcm
+# ── Gradio ────────────────────────────────────────────────────────────────────
+.gradio/
 
-# ── Kaggle credentials (NEVER commit these!) ──────────────────────────────────
-kaggle.json
+# ── Old naming artifacts (cleaned up) ────────────────────────────────────────
+HYDRA_*.pth
+HYDRA_*.csv
+HYDRA_*.json
+HYDRA_*.pdf
+hydra_core.py
 
-# ── MLflow / ClearML ──────────────────────────────────────────────────────────
-.clearml/
+# ── Keep curated documentation media tracked ─────────────────────────────────
+!docs/
+!docs/media/
+!docs/media/**

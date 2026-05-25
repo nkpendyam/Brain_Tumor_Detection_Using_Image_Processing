@@ -1,21 +1,193 @@
-# HYDRA — Clinical Brain Tumour Analysis System
+# Brain Tumor Detection — AI Clinical Analysis System
 
-**Research and educational project — not a medical device.**
+> **Research and educational project. Not a certified medical device.**
+> All outputs must be reviewed by a qualified radiologist.
 
-Multi-stage brain tumour analysis pipeline for MRI, CT, DICOM series, and NIfTI studies.
-Handles 200-300 slices per patient with patient-level aggregation.
+A multi-stage deep-learning pipeline for automated brain tumour detection and classification from MRI, CT, DICOM series, and NIfTI volumetric studies.
 
 ---
 
-## Quick Status
+## Table of Contents
 
-| Component | Status | Detail |
-|-----------|--------|--------|
-| Gatekeeper (EfficientNet-B0) | ✅ Trained | 5 epochs, binary Brain/NotBrain |
-| Hunter (YOLOv11n) | ✅ Trained | 35 epochs, mAP50 = 0.516 |
-| Council (3-branch ensemble) | ✅ Trained | 12 epochs, **98.25% accuracy** |
-| Volumetric fine-tuning | ⬇️ Pending | Run `01b` then `05` |
-| Dashboard | ✅ Ready | `python 06_clinical_diagnostic_interface.py` |
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Model Weights](#model-weights)
+- [Performance](#performance)
+- [Environment Setup](#environment-setup)
+- [Run Order](#run-order)
+- [Dataset Layout](#dataset-layout)
+- [Dashboard](#dashboard)
+- [Demo](#demo)
+- [Docker](#docker)
+- [Testing](#testing)
+- [Audit Notes](#audit-notes)
+- [GitHub — Clean Push Guide](#github--clean-push-guide)
+- [Project Structure](#project-structure)
+- [License](#license)
+
+---
+
+## Overview
+
+This system combines five specialised AI models into a single clinical pipeline:
+
+1. **Safety Gatekeeper** — rejects non-brain inputs before they reach the diagnostic models
+2. **Tumour Localizer (Hunter)** — spatial bounding-box detection with YOLOv11n
+3. **Diagnostic Council** — three-branch weighted-voting ensemble for 5-class classification
+4. **Volumetric Fine-tuner** — adapts the council to full patient studies (NIfTI/DICOM)
+5. **Clinical Dashboard** — Gradio web interface with PDF report export
+
+**Diagnostic Classes:**
+
+| Class | Description |
+|-------|-------------|
+| Glioma | Aggressive primary brain tumour |
+| Meningioma | Slow-growing tumour from meninges |
+| No Tumor | Healthy brain tissue |
+| Pituitary | Tumour of the pituitary gland |
+| Tumor (Generic / CT) | Unspecified tumour on CT scan |
+
+---
+
+## Architecture
+
+```
+Patient Scan (DICOM / NIfTI / MRI / CT)
+        │
+        ▼
+┌─────────────────────────────────────────┐
+│  Ingest & Normalise                     │
+│  • Parse DICOM / NIfTI / image formats  │
+│  • Skull-strip via Otsu thresholding    │
+│  • Uniform downsample → ≤ 300 slices   │
+└──────────────────┬──────────────────────┘
+                   │
+        ▼
+┌─────────────────────────────────────────┐
+│  Safety Gatekeeper (EfficientNet-B0)    │
+│  • Binary: Brain vs NotBrain            │
+│  • Rejects non-brain inputs at 70%      │
+│  Weight: Gatekeeper_v1.pth             │
+└──────────────────┬──────────────────────┘
+                   │  (per valid slice)
+        ▼
+┌─────────────────────────────────────────┐
+│  Diagnostic Council — Weighted Vote     │
+│                                         │
+│  ┌───────────┐  ┌───────────┐  ┌──────┐│
+│  │ SwinV2    │  │ ConvNeXt  │  │MONAI ││
+│  │ Tiny (40%)│  │ Nano (30%)│  │ (30%)││
+│  │Swin_5C.pth│  │ConvNext.. │  │MONAI.││
+│  └───────────┘  └───────────┘  └──────┘│
+│                                         │
+│  P = 0.4·P_swin + 0.3·P_conv + 0.3·P_m│
+└──────────────────┬──────────────────────┘
+                   │
+        ▼
+┌─────────────────────────────────────────┐
+│  Patient-Level Aggregation              │
+│  Mean probabilities across all slices   │
+└──────────────────┬──────────────────────┘
+                   │
+        ▼
+┌─────────────────────────────────────────┐
+│  Outputs                                │
+│  • Diagnostic report (markdown)         │
+│  • Grad-CAM saliency heatmap            │
+│  • Downloadable PDF clinical report     │
+└─────────────────────────────────────────┘
+```
+
+**Council Branch Details:**
+
+| Branch | Architecture | Vote | Strength |
+|--------|-------------|------|----------|
+| SwinV2-Tiny | Shifted-window vision transformer | 40% | Global texture, long-range dependencies |
+| ConvNeXtV2-Nano | Modernised convolutional network | 30% | Spatial stability, rotation invariance |
+| MONAI Swin-UNETR | Medical-domain pretrained encoder | 30% | Clinical anatomical intuition, Grad-CAM |
+
+---
+
+## Model Weights
+
+All weights are stored in the project root directory:
+
+| File | Model | Size | Purpose |
+|------|-------|------|---------|
+| `Gatekeeper_v1.pth` | EfficientNet-B0 | ~20 MB | Brain / NotBrain classifier |
+| `Gatekeeper_Clinical.pth` | EfficientNet-B0 | ~20 MB | Fine-tuned clinical version |
+| `Swin_5C.pth` | SwinV2-Tiny | ~110 MB | Council branch 1 |
+| `ConvNext_5C.pth` | ConvNeXtV2-Nano | ~50 MB | Council branch 2 |
+| `MONAI_5C.pth` | MONAI Swin-UNETR | ~95 MB | Council branch 3 |
+
+> Weights are excluded from git (see `.gitignore`). Store them on cloud storage or Git LFS.
+
+---
+
+## Performance
+
+Results on 20% held-out validation set (2,005 samples, `random_state=42`):
+
+| Class | Precision | Recall | F1-Score | Support |
+|-------|-----------|--------|----------|---------|
+| Glioma | 99.07% | 99.07% | 0.9907 | 324 |
+| Meningioma | 95.45% | 95.74% | 0.9560 | 329 |
+| No Tumor | 100.00% | 99.86% | 0.9993 | 700 |
+| Pituitary | 98.31% | 98.86% | 0.9858 | 352 |
+| Tumor (Generic / CT) | 96.31% | 95.67% | 0.9599 | 300 |
+| **Overall** | **97.83%** | **97.84%** | **0.9783** | **2005** |
+
+**Overall Accuracy: 98.25%** | Trained: 12 epochs | GPU: RTX 5060 Laptop | CUDA: 12.8
+
+---
+
+## Environment Setup
+
+**Requirements:**
+- WSL2 Ubuntu 22.04
+- NVIDIA RTX 5060 (or any CUDA-capable GPU)
+- CUDA 12.8 (Blackwell / sm_120 compatible)
+- Miniforge3 / Conda
+- Python 3.11
+
+### Step 1 — Create conda environment
+
+```bash
+conda activate rtx50_env
+# or create fresh:
+conda create -n btd_env python=3.11 -y
+conda activate btd_env
+```
+
+### Step 2 — Install PyTorch (CUDA 12.8 — RTX 5060 requires cu128 wheels)
+
+```bash
+pip install torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu128 --upgrade
+```
+
+### Step 3 — Install remaining packages
+
+```bash
+pip install -r requirements.txt
+```
+
+### Step 4 — Set up Kaggle credentials
+
+```bash
+cp kaggle.json ~/.kaggle/kaggle.json
+chmod 600 ~/.kaggle/kaggle.json
+
+# Upgrade Kaggle CLI to avoid download corruption bug
+pip install kaggle --upgrade
+```
+
+### Step 5 — Verify GPU
+
+```bash
+python -c "import torch; print(torch.cuda.get_device_name(0)); print(torch.__version__)"
+# Expected: NVIDIA GeForce RTX 5060 Laptop GPU   2.x.x+cu128
+```
 
 ---
 
@@ -24,111 +196,318 @@ Handles 200-300 slices per patient with patient-level aggregation.
 ```bash
 conda activate rtx50_env
 cd ~/brain_fn
+```
 
-# Already completed (will auto-skip):
+> Scripts 01–04 auto-skip if their outputs already exist. Re-running is always safe.
+
+```bash
+# ── Download base 2-D training data (skip if dataset_ensemble/ already populated)
 python 01_neuroimaging_data_acquisition.py
+
+# ── Download volumetric patient studies for fine-tuning
+python 01b_volumetric_dataset_download.py
+
+# ── Train Gatekeeper (5 epochs, ~10 min)
 python 02_gatekeeper_model_training.py
+
+# ── Train YOLO Localizer (35 epochs, ~45 min)
 python 03_tumor_localization_model_training.py
+
+# ── Train Diagnostic Council (12 epochs, ~13 hrs — skip if weights exist)
 python 04_diagnostic_ensemble_training.py
 
-# NEW — run these:
-python 01b_volumetric_dataset_download.py   # Download BraTS/IXI/OASIS
-python 05_volumetric_brain_finetune.py      # Fine-tune on patient studies
+# ── Fine-tune on volumetric patient studies (4 epochs, ~2 hrs)
+python 05_volumetric_brain_finetune.py
+
+# ── Evaluate final performance
 python 07_ensemble_performance_evaluation.py
 
-# Launch dashboard:
+# ── Launch clinical dashboard
 python 06_clinical_diagnostic_interface.py
-# → http://localhost:7860
+# Open: http://localhost:7860
+
+# Optional remote tunnel; keep disabled for clinical/private scans
+BTD_SHARE=1 python 06_clinical_diagnostic_interface.py
 ```
 
-See **COMMANDS.md** for the complete reference including Git cleanup commands and troubleshooting.
+### Skip Logic Summary
 
----
-
-## Architecture
-
-```
-Patient Scan (DICOM / NIfTI / MRI / CT)
-        ↓
-[Gatekeeper] EfficientNet-B0  ← rejects non-brain inputs
-        ↓
-[Hunter]     YOLOv11n         ← tumour bounding box localisation
-        ↓
-[Council]    Weighted vote (per slice, aggregated across study)
-   ├── SwinV2-Tiny      40%   global texture
-   ├── ConvNeXtV2-Nano  30%   spatial stability
-   └── MONAI Swin-UNETR 30%   clinical domain
-        ↓
-Verdict + Grad-CAM + PDF Report
-```
-
----
-
-## Council Results (12 epochs, 2005 validation samples)
-
-| Class | F1 | Accuracy |
-|-------|----|----------|
-| Glioma | 0.9907 | 99.07% |
-| Meningioma | 0.9560 | 95.74% |
-| NoTumor | 0.9993 | 99.86% |
-| Pituitary | 0.9858 | 98.86% |
-| Tumor Generic | 0.9599 | 95.67% |
-| **Overall** | **0.9783** | **98.25%** |
+| Script | Skips when |
+|--------|-----------|
+| `01` | `dataset_ensemble/` has ≥ 1000 images |
+| `01b` | `dataset_volumetric/tumor/` and `no_tumor/` have ≥ 10 patient folders each |
+| `02` | `Gatekeeper_v1.pth` exists and > 1 MB |
+| `03` | `runs/detect/tumor_localizer/weights/best.pt` exists and > 1 MB |
+| `04` | `Swin_5C.pth`, `ConvNext_5C.pth`, `MONAI_5C.pth` all exist and each > 5 MB |
+| `05` | Council weights exist AND `Volumetric_Finetune.json` fingerprint matches |
 
 ---
 
 ## Dataset Layout
 
-```
-dataset_ensemble/          ← Base 2-D training data (already downloaded)
-├── Glioma/
-├── Meningioma/
-├── NoTumor/
-├── Pituitary/
-└── Tumor_Generic/
+### Base training data (`dataset_ensemble/`)
 
-dataset_volumetric/        ← Patient-level volumetric data (NEW — run 01b)
+```
+dataset_ensemble/
+├── Glioma/          (1,621 images — MRI)
+├── Meningioma/      (1,645 images — MRI)
+├── NoTumor/         (3,500 images — MRI + CT)
+├── Pituitary/       (1,757 images — MRI)
+└── Tumor_Generic/   (1,500 images — CT)
+```
+
+Sources: Kaggle `masoudnickparvar/brain-tumor-mri-dataset` + `ahmedhamada0/brain-tumor-detection`
+
+### Volumetric fine-tuning data (`dataset_volumetric/`)
+
+```
+dataset_volumetric/
 ├── tumor/
-│   ├── patient_001/       ← image folder OR
-│   └── patient_001.nii.gz ← NIfTI volume
+│   ├── lgg_TCGA_CS_4941_19960909/   ← JPEG slices per patient
+│   │   ├── slice_0000.jpg
+│   │   └── ...
+│   └── sartaj_0001/
 └── no_tumor/
-    ├── patient_101/
-    └── patient_101.nii.gz
+    ├── healthy_0001/
+    └── ...
+```
+
+Sources: `mateuszbuda/lgg-mri-segmentation` + `navoneel/brain-mri-images-for-brain-tumor-detection`
+
+### Supported input formats at inference
+
+| Format | Extension | How to upload |
+|--------|-----------|--------------|
+| DICOM series | `.dcm` | Upload all `.dcm` files from one patient |
+| NIfTI volume | `.nii`, `.nii.gz` | Upload single volume file |
+| MRI/CT slices | `.jpg`, `.png` | Upload one or more slice images |
+
+---
+
+## Dashboard
+
+```bash
+python 06_clinical_diagnostic_interface.py
+# Opens at: http://localhost:7860
+```
+
+**What it shows:**
+- 🟢 / 🔴 Verdict with confidence percentage
+- How many slices were uploaded vs how many were analysed
+- Per-class probability distribution (5 classes)
+- Grad-CAM saliency map on the highest tumour-signal slice
+- Downloadable PDF clinical report
+
+**Slice handling:**
+- Single image → 1 slice analysed
+- DICOM series → sorted by `ImagePositionPatient` / `InstanceNumber`, uniform downsampled to ≤ 300
+- NIfTI → 15% trimmed from each end (skull/noise), ≤ 300 slices extracted
+- Result always shows: `N slices uploaded — M analysed`
+
+---
+
+## Demo
+
+The Gradio dashboard uses an Apple-inspired light workspace: quiet surfaces, compact panels, system-style controls, and a diagnostic report-first workflow.
+
+![Apple-style Gradio dashboard](docs/media/gradio-dashboard-apple-style.png)
+
+### End-to-end run
+
+This browser-driven demo uploads a glioma MRI slice, runs the ensemble, and renders the diagnostic report.
+
+[Watch the demo video](docs/media/gradio-e2e-demo.webm)
+
+![Diagnostic result](docs/media/gradio-dashboard-result.png)
+
+---
+
+## Docker
+
+Build and run the full system in a container (no conda needed):
+
+```bash
+# Build image (uses CUDA 12.8 base)
+docker build -t brain-tumor-detection:latest .
+
+# Run with GPU access and model weights
+docker compose up
+
+# Or manually
+docker run --gpus all \
+  -p 7860:7860 \
+  -v ~/.kaggle:/root/.kaggle:ro \
+  -v $(pwd)/Gatekeeper_v1.pth:/app/Gatekeeper_v1.pth \
+  -v $(pwd)/Gatekeeper_Clinical.pth:/app/Gatekeeper_Clinical.pth \
+  -v $(pwd)/Swin_5C.pth:/app/Swin_5C.pth \
+  -v $(pwd)/ConvNext_5C.pth:/app/ConvNext_5C.pth \
+  -v $(pwd)/MONAI_5C.pth:/app/MONAI_5C.pth \
+  -v $(pwd)/runs:/app/runs \
+  brain-tumor-detection:latest
+
+# Open: http://localhost:7860
 ```
 
 ---
 
-## Environment
+## Testing
 
-- **OS**: WSL2 Ubuntu 22.04
-- **GPU**: RTX 5060 Laptop (8 GB VRAM)
-- **CUDA**: 12.8 (Blackwell / SM_120)
-- **Python**: 3.11
-- **Conda env**: `rtx50_env`
-- **PyTorch**: `torch-2.9.1+cu128`
+### Python smoke tests
+
+The smoke tests import the Gradio module with model loading disabled and validate upload guards, empty-state behavior, and status rendering.
+
+```bash
+BTD_SKIP_MODEL_LOAD=1 python -m unittest discover -s tests -v
+```
+
+### Browser e2e test
+
+The latest verification used Playwright Chromium against the real local app at `http://127.0.0.1:7860` with all weights loaded. The flow was:
+
+1. Load the dashboard.
+2. Confirm the first meaningful screen renders.
+3. Upload `dataset_ensemble/Glioma/mri_Te-glTr_0000.jpg`.
+4. Click **Analyse scan**.
+5. Verify a result report renders and capture screenshots/video in `docs/media/`.
 
 ---
 
-## Files
+## Audit Notes
 
-| File | Purpose |
-|------|---------|
-| `00_environment_setup.sh` | One-time WSL2 + conda setup |
-| `01_neuroimaging_data_acquisition.py` | Download base Kaggle 2-D data |
-| `01b_volumetric_dataset_download.py` | Download BraTS/IXI/OASIS volumetric data |
-| `02_gatekeeper_model_training.py` | Train EfficientNet-B0 gatekeeper |
-| `03_tumor_localization_model_training.py` | Train YOLOv11n localizer |
-| `04_diagnostic_ensemble_training.py` | Train 3-branch Council |
-| `05_volumetric_brain_finetune.py` | Fine-tune Council on patient studies |
-| `06_clinical_diagnostic_interface.py` | Gradio dashboard |
-| `07_ensemble_performance_evaluation.py` | Standalone evaluation |
-| `hydra_core.py` | Shared model adapters + helpers |
-| `brain-tumor.yaml` | YOLO dataset config |
-| `COMMANDS.md` | Complete command reference |
-| `index.html` | Presentation + flowchart |
+Current `rtx50_env` verification:
+
+| Item | Result |
+|------|--------|
+| Environment path | `/home/nkpen/miniforge3/envs/rtx50_env` |
+| Python | 3.11.14 |
+| PyTorch | 2.9.0+cu128 |
+| CUDA | 12.8 |
+| GPU | NVIDIA GeForce RTX 5060 Laptop GPU |
+| Gradio | 6.3.0 |
+
+Findings:
+
+- `pip check` currently crashes inside pip's wheel tag parser instead of returning dependency health.
+- Both legacy `fpdf` and `fpdf2` are installed; keep only `fpdf2` to avoid namespace collisions.
+- The environment contains many packages unrelated to this project. For reproducibility, prefer a fresh env from `requirements.txt` + `constraints.txt`.
+- `black --check *.py` reports that the Python scripts need formatting.
+- Docker Compose now builds and runs the app with CUDA 12.8, Torch 2.9.0+cu128, GPU visibility, and a passing in-container `pip check`.
+
+The detailed audit log is in [`docs/AUDIT.md`](docs/AUDIT.md).
+
+---
+
+## GitHub — Clean Push Guide
+
+### Delete everything from old repo and push fresh code
+
+```bash
+cd ~/brain_fn
+
+# ── Step 1: Remove all old tracked files from git index
+git rm -r --cached .
+
+# ── Step 2: Apply new .gitignore (datasets/weights excluded)
+git add .gitignore
+git commit -m "Apply clean .gitignore — exclude datasets and weights"
+
+# ── Step 3: Add all project code files
+git add \
+  01_neuroimaging_data_acquisition.py \
+  01b_volumetric_dataset_download.py \
+  02_gatekeeper_model_training.py \
+  03_tumor_localization_model_training.py \
+  04_diagnostic_ensemble_training.py \
+  05_volumetric_brain_finetune.py \
+  06_clinical_diagnostic_interface.py \
+  07_ensemble_performance_evaluation.py \
+  requirements.txt \
+  Dockerfile \
+  docker-compose.yml \
+  brain-tumor.yaml \
+  gatekeeper_class_map.json \
+  gatekeeper_classes.json \
+  README.md \
+  index.html \
+  LICENSE
+
+git commit -m "Brain Tumor Detection — clean codebase v1.0"
+
+# ── Step 4: Push to GitHub
+git push origin main
+
+# If push is rejected (history mismatch after cleanup):
+git push origin main --force
+```
+
+### Remove specific old files that slipped through
+
+```bash
+# Remove a file from git tracking (keep local copy)
+git rm --cached hydra_core.py
+git rm --cached Confusion_Matrix.csv
+git commit -m "Remove old naming artifacts"
+git push origin main
+
+# Remove a large file from ALL git history (permanent)
+pip install git-filter-repo
+git filter-repo --path dataset_ensemble/ --invert-paths --force
+git push origin main --force
+```
+
+### Confirm what will be pushed (dry run)
+
+```bash
+git status
+git diff --cached --name-only
+```
+
+---
+
+## Project Structure
+
+```
+brain_fn/
+├── 01_neuroimaging_data_acquisition.py   # Download base 2-D training data
+├── 01b_volumetric_dataset_download.py    # Download patient-level volumetric data
+├── 02_gatekeeper_model_training.py       # Train EfficientNet-B0 gatekeeper
+├── 03_tumor_localization_model_training.py # Train YOLOv11n tumour localizer
+├── 04_diagnostic_ensemble_training.py    # Train 3-branch council
+├── 05_volumetric_brain_finetune.py       # Fine-tune on patient studies
+├── 06_clinical_diagnostic_interface.py   # Gradio dashboard
+├── 07_ensemble_performance_evaluation.py # Standalone evaluation
+├── requirements.txt                      # Python dependencies
+├── Dockerfile                            # CUDA 12.8 container
+├── docker-compose.yml                    # Docker Compose config
+├── docs/
+│   ├── AUDIT.md                          # Environment, dependency, QA audit
+│   └── media/                            # README screenshots and demo video
+├── tests/
+│   └── test_clinical_interface_smoke.py  # Lightweight smoke tests
+├── brain-tumor.yaml                      # YOLO dataset config
+├── gatekeeper_class_map.json             # Brain/NotBrain class indices
+├── gatekeeper_classes.json               # Class definitions
+├── index.html                            # Presentation / flowchart
+├── README.md                             # This file
+└── LICENSE
+```
+
+**Generated at runtime (not committed):**
+```
+Gatekeeper_v1.pth          ← trained gatekeeper weights
+Gatekeeper_Clinical.pth    ← fine-tuned gatekeeper
+Swin_5C.pth                ← council branch 1
+ConvNext_5C.pth            ← council branch 2
+MONAI_5C.pth               ← council branch 3
+Volumetric_Finetune.json   ← fine-tune fingerprint sentinel
+BrainTumor_Confusion_Matrix.csv
+runs/                      ← YOLO training artifacts
+dataset_ensemble/          ← base training images
+dataset_volumetric/        ← patient study folders
+```
 
 ---
 
 ## License
 
-See LICENSE. Research and educational use only.
+See [LICENSE](LICENSE). For research and educational use only.
