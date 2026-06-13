@@ -5,10 +5,21 @@
 
 A multi-stage deep-learning pipeline for automated brain tumour detection and classification from MRI, CT, DICOM series, and NIfTI volumetric studies.
 
+## Features
+
+- **Safety Gatekeeper** — rejects non-brain inputs before they reach the diagnostic models
+- **Tumour Localizer (Hunter)** — spatial bounding-box detection with YOLOv11n
+- **Diagnostic Council** — three-branch weighted-voting ensemble for 5-class classification
+- **Volumetric Fine-tuner** — adapts the council to full patient studies (NIfTI/DICOM)
+- **Clinical Dashboard** — Gradio web interface with PDF report export
+- **Docker support** — CUDA 12.8 container with GPU access
+- **Test suite** — Python smoke tests and Playwright browser e2e test
+
 ---
 
 ## Table of Contents
 
+- [Features](#features)
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Model Weights](#model-weights)
@@ -510,4 +521,4 @@ dataset_volumetric/        ← patient study folders
 
 ## License
 
-See [LICENSE](LICENSE). For research and educational use only.
+MIT License — see [LICENSE](LICENSE). For research and educational use only.
